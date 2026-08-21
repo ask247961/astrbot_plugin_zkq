@@ -1331,7 +1331,7 @@ class ZkqStatus(Star):
         days: int = 0,
         hours: int = 0,
     ):
-        """紫孔雀脚本助手自然语言管理
+        """【必须调用的真实执行工具】紫孔雀脚本全能管理驱动中枢。当用户想要：查询运行状态、查看设备列表、服务器监控、远程启动挂机、停止/暂停挂机、实时截图、拉取日志文件、清空日志、错误排查、网络ping测试、或者进行远程扫码提取账号存档（发起提取、选QQ/微信登录方式、确认提取、取消提取、继续下一号、结束提取）等任何操作时，必须直接调用本工具执行硬件操作与数据交互，严禁仅用口头文字假装已执行！
 
         Args:
             action(string): 执行的操作类型，可选：'status'（状态查询）、'devices'（设备列表）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图）、'logs'（获取日志）、'clearlogs'（清空日志）、'errors'（错误日志）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
@@ -1713,7 +1713,10 @@ class ZkqStatus(Star):
             dev_txt = "、".join(devices)
             ft = mgr.get_func("zkq_assistant")
             if ft is not None:
-                ft.description = f"紫孔雀脚本助手自然语言管理。当前在线设备：{dev_txt}。"
+                ft.description = (
+                    f"【必须调用的真实执行工具】紫孔雀脚本全能管理驱动中枢。当用户想要：查询运行状态、查看设备列表、服务器监控、远程启动挂机、停止/暂停挂机、实时截图、拉取日志文件、清空日志、错误排查、网络ping测试、或者进行远程扫码提取账号存档（发起提取、选QQ/微信登录方式、确认提取、取消提取、继续下一号、结束提取）等任何操作时，必须直接调用本工具执行硬件操作与数据交互，严禁仅用口头文字假装已执行！"
+                    f"当前在线设备：{dev_txt}。"
+                )
                 props = ft.parameters.get("properties") or {}
                 if "device" in props:
                     props["device"]["description"] = f"目标设备名称，当前可选设备：{dev_txt}。"
