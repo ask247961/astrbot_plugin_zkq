@@ -25,7 +25,7 @@ _SNAPSHOT_FILE = _DATA_DIR / "snapshots.json"
 _SCREENSHOT_DIR = _DATA_DIR / "screenshots"
 _KEEP_SCREENSHOTS = 20
 _STALE_FACTOR = 3  # snapshot considered stale after 3x recommended interval
-_CLEANUP_DAYS = 7  # devices with no update for this long are dropped
+_CLEANUP_HOURS = 12  # devices with no update for 12 hours are dropped
 _CLEANUP_INTERVAL = 3600  # seconds between stale-device cleanup passes
 _QUERY_TIMEOUT = 10  # seconds to wait for a WS query result frame
 _QR_POLL_INTERVAL = 15  # seconds between 扫码提取 status polls (ADR-0003)
@@ -1586,6 +1586,8 @@ class ZkqStatus(Star):
         return (time.time() - rec.get("ts", time.time())) < interval * _STALE_FACTOR
 
     def _format_devices(self) -> str:
+        if self._cleanup_stale():
+            self._persist()
         if not self.snapshots:
             return "## 📡 设备列表\n\n（暂无设备上报，请检查 App 里的插件连接地址）"
         lines = [f"## 📡 设备列表（{len(self.snapshots)} 台）"]
@@ -1764,8 +1766,8 @@ class ZkqStatus(Star):
                 logger.warning(f"[zkq] remove legacy snapshots failed: {e}")
 
     def _cleanup_stale(self) -> bool:
-        """Drops devices with no update for _CLEANUP_DAYS (doc §14.3)."""
-        cutoff = time.time() - _CLEANUP_DAYS * 86400
+        """Drops devices with no update for _CLEANUP_HOURS (default 12h)."""
+        cutoff = time.time() - _CLEANUP_HOURS * 3600
         stale = [
             d
             for d, rec in self.snapshots.items()
@@ -1773,8 +1775,10 @@ class ZkqStatus(Star):
         ]
         for d in stale:
             self.snapshots.pop(d, None)
+            self.conns.pop(d, None)
+            self._conn_nonce.pop(d, None)
         if stale:
-            logger.info(f"[zkq] cleaned {len(stale)} stale device(s)")
+            logger.info(f"[zkq] cleaned {len(stale)} stale device(s): {', '.join(stale)}")
         return bool(stale)
 
     async def _cleanup_loop(self) -> None:
