@@ -646,8 +646,54 @@ class ZkqStatus(Star):
 
     # ── Commands ────────────────────────────────────────────────────
     @filter.command_group("zkq")
-    def zkq_group(self):
-        pass
+    async def zkq_group(self, event: AstrMessageEvent):
+        yield event.plain_result(self._help_text())
+
+    @zkq_group.command("启动", alias={"start", "运行", "run"})
+    async def start_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """远程启动脚本挂机：/zkq 启动 [设备]（仅私聊）"""
+        if not event.is_private_chat():
+            yield event.plain_result("仅私聊可用。")
+            return
+        if not self._check_whitelist(event):
+            yield event.plain_result("无权限操作。")
+            return
+        device, hint = self._resolve_device(str(rest).strip(), "启动")
+        if device is None:
+            yield event.plain_result(hint)
+            return
+        data, err = await self._request_query(device, "start")
+        if err:
+            yield event.plain_result(err)
+            return
+        if not data or not data.get("ok"):
+            yield event.plain_result((data or {}).get("error") or f"设备「{device}」启动失败")
+            return
+        msg = (data or {}).get("data") or "已启动运行"
+        yield event.plain_result(f"▶️ 设备「{device}」：{msg}")
+
+    @zkq_group.command("停止", alias={"stop", "暂停", "pause"})
+    async def stop_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """远程停止/暂停脚本挂机：/zkq 停止 [设备]（仅私聊）"""
+        if not event.is_private_chat():
+            yield event.plain_result("仅私聊可用。")
+            return
+        if not self._check_whitelist(event):
+            yield event.plain_result("无权限操作。")
+            return
+        device, hint = self._resolve_device(str(rest).strip(), "停止")
+        if device is None:
+            yield event.plain_result(hint)
+            return
+        data, err = await self._request_query(device, "stop")
+        if err:
+            yield event.plain_result(err)
+            return
+        if not data or not data.get("ok"):
+            yield event.plain_result((data or {}).get("error") or f"设备「{device}」停止失败")
+            return
+        msg = (data or {}).get("data") or "已暂停运行"
+        yield event.plain_result(f"⏸️ 设备「{device}」：{msg}")
 
     @zkq_group.command("设备列表", alias={"devices"})
     async def devices_cmd(self, event: AstrMessageEvent):
@@ -1170,6 +1216,8 @@ class ZkqStatus(Star):
             "## 🤖 紫孔雀脚本助手\n\n"
             "- `/zkq 设备列表` — 已上报设备（在线状态）\n"
             "- `/zkq 状态 <设备>` — 查看状态（缺省=单设备）\n"
+            "- `/zkq 启动 <设备>` — 远程启动脚本挂机（仅私聊）\n"
+            "- `/zkq 停止 <设备>` — 远程停止/暂停脚本挂机（仅私聊）\n"
             "- `/zkq 全部` — 全部设备汇总\n"
             "- `/zkq 服务器` — 服务器状态（CPU/内存/磁盘）\n"
             "- `/zkq 截图 <设备>` — 设备实时截图（压缩后发图）\n"
@@ -1185,7 +1233,7 @@ class ZkqStatus(Star):
             "- `/zkq ping <设备>` — 测试连接\n"
             "- `/zkq 重置token` — 重置设备通讯密钥（仅私聊）\n"
             "- `/zkq 帮助` — 本帮助\n\n"
-            "> 也可以直接问 AI：\"设备在干什么\"、\"服务器状态怎么样\"、\"截个图看看\""
+            "> 也可以直接问 AI：\"设备在干什么\"、\"帮我启动设备\"、\"服务器状态怎么样\"、\"截个图看看\""
         )
 
     @zkq_group.command("重置token", alias={"token", "重置密钥"})
@@ -1350,6 +1398,62 @@ class ZkqStatus(Star):
             self._file_result(event, path, f"{device}_截图_{time.strftime('%m%d_%H%M%S')}.zip")
         )
         return f"已发送截图"
+
+    @filter.llm_tool(name="zkq_start_device")
+    async def llm_zkq_start_device(self, event: AstrMessageEvent, device: str = None):
+        """远程启动指定的紫孔雀脚本挂机（仅私聊可用）。
+
+        Args:
+            device(string, optional): 设备名，不填默认唯一设备。
+        """
+        if not event.is_private_chat():
+            return "仅私聊可用。"
+        if not self._check_whitelist(event):
+            return "无权限操作。"
+        device = (device or "").strip()
+        if device:
+            if device not in self.snapshots and device not in self.conns:
+                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
+        elif len(self.snapshots) == 1:
+            device = next(iter(self.snapshots))
+        elif not self.snapshots:
+            return "暂无设备上报（请检查 App 里的插件连接地址）"
+        else:
+            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
+        data, err = await self._request_query(device, "start")
+        if err:
+            return err
+        if not data or not data.get("ok"):
+            return (data or {}).get("error") or f"设备「{device}」启动失败"
+        return f"设备「{device}」：" + str((data or {}).get("data") or "已启动运行")
+
+    @filter.llm_tool(name="zkq_stop_device")
+    async def llm_zkq_stop_device(self, event: AstrMessageEvent, device: str = None):
+        """远程停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。
+
+        Args:
+            device(string, optional): 设备名，不填默认唯一设备。
+        """
+        if not event.is_private_chat():
+            return "仅私聊可用。"
+        if not self._check_whitelist(event):
+            return "无权限操作。"
+        device = (device or "").strip()
+        if device:
+            if device not in self.snapshots and device not in self.conns:
+                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
+        elif len(self.snapshots) == 1:
+            device = next(iter(self.snapshots))
+        elif not self.snapshots:
+            return "暂无设备上报（请检查 App 里的插件连接地址）"
+        else:
+            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
+        data, err = await self._request_query(device, "stop")
+        if err:
+            return err
+        if not data or not data.get("ok"):
+            return (data or {}).get("error") or f"设备「{device}」停止失败"
+        return f"设备「{device}」：" + str((data or {}).get("data") or "已暂停运行")
 
     @filter.regex(_KEYWORD_PATTERN)
     async def keyword_cmd(self, event: AstrMessageEvent):
@@ -1571,6 +1675,14 @@ class ZkqStatus(Star):
                 (
                     "zkq_clear_logs",
                     f"删除紫孔雀脚本设备的日志（仅私聊可用，破坏性操作）。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_start_device",
+                    f"远程启动指定的紫孔雀脚本挂机（仅私聊可用）。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_stop_device",
+                    f"远程停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。当前设备：{dev_txt}。",
                 ),
             ]
             for name, desc in plan:
