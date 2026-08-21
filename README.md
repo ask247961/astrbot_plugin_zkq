@@ -1,8 +1,8 @@
-# 🦚 紫孔雀状态查询（astrbot_plugin_zkq）
-
 <p align="center">
   <img src="logo.png" alt="logo" width="128">
 </p>
+
+# 紫孔雀状态查询（astrbot_plugin_zkq）
 
 基于 AstrBot 的紫孔雀挂机脚本状态查询插件：设备定时上报状态，QQ 里随时查看脚本运行情况、拉取日志、截图（查询类**只读**）；另支持扫码提取存档（操控脚本，仅私聊）。
 
