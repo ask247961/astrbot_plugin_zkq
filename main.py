@@ -149,6 +149,9 @@ class ZkqStatus(Star):
         # 让裸 /zkq 改由 bare_group_help 这个 regex handler 展示命令列表。
         _zkq_names = set(self.zkq_group.parent_group.get_complete_command_names())
         self.zkq_group.parent_group.add_custom_filter(_BareGroupHelpFilter(_zkq_names))
+        self._pause_start_times: dict[str, float] = {}
+        self._pause_warned: dict[str, bool] = {}
+        self._last_admin_session: str | None = None
         self._load_snapshots()
         self._tool_desc_sig: tuple | None = None
         self._refresh_tool_descriptions()
@@ -516,6 +519,20 @@ class ZkqStatus(Star):
         if sig != self._tool_desc_sig:
             self._refresh_tool_descriptions()
 
+        # 暂停超时预警跟踪（连续暂停达到 50 分钟时向管理员发送预警）
+        is_running = bool(snap.get("running"))
+        now = time.time()
+        if not is_running:
+            if device_id not in self._pause_start_times:
+                self._pause_start_times[device_id] = now
+            paused_duration = now - self._pause_start_times[device_id]
+            if paused_duration >= 50 * 60 and not self._pause_warned.get(device_id, False):
+                self._pause_warned[device_id] = True
+                asyncio.get_running_loop().create_task(self._notify_pause_timeout(device_id))
+        else:
+            self._pause_start_times.pop(device_id, None)
+            self._pause_warned.pop(device_id, None)
+
         # 回送 ACK 帧给设备（下发心跳频率和日志清理天数）
         conn = self.conns.get(device_id)
         if conn and not conn.closed:
@@ -528,6 +545,22 @@ class ZkqStatus(Star):
                 await conn.send_str(json.dumps(ack))
             except Exception as e:
                 logger.warning(f"[zkq] failed to send snapshot_ack to {device_id}: {e}")
+
+    async def _notify_pause_timeout(self, device_id: str) -> None:
+        """设备连续暂停达到 50 分钟时，向管理员发送预警通知"""
+        msg = (
+            f"⚠️ 【紫孔雀脚本助手】\n\n"
+            f"设备「{device_id}」已长时间暂停，辅助即将完全退出。\n\n"
+            f"如需恢复挂机，请发送指令：\n"
+            f"/zkq 启动 {device_id}"
+        )
+        logger.warning(f"[zkq] pause timeout warning for {device_id}")
+        session = getattr(self, "_last_admin_session", None)
+        if session:
+            try:
+                await self.context.send_message(session, MessageChain().message(msg))
+            except Exception as e:
+                logger.error(f"[zkq] send pause timeout notification failed: {e}")
 
     async def _forward_qr_notify(self, device_id: str, data: dict) -> None:
         """App 主动推送的通知（会话提示/会话结束）→ 转发到发起扫码提取的会话。"""
@@ -1702,12 +1735,17 @@ class ZkqStatus(Star):
         """Private chats are always allowed (only the owner chats with the bot);
         the whitelist only gates group chats."""
         if event.is_private_chat():
+            self._last_admin_session = str(event.unified_msg_origin)
             return True
         allowed = str(self.config.get("allowed_qq", "") or "")
         if not allowed.strip():
+            self._last_admin_session = str(event.unified_msg_origin)
             return True
         sender = str(event.get_sender_id() or "")
-        return sender in [q.strip() for q in allowed.split(",") if q.strip()]
+        ok = sender in [q.strip() for q in allowed.split(",") if q.strip()]
+        if ok:
+            self._last_admin_session = str(event.unified_msg_origin)
+        return ok
 
     def _load_snapshots(self) -> None:
         # 旧版本把数据写在插件目录（data/plugins/astrbot_plugin_zkq/），
