@@ -1306,280 +1306,180 @@ class ZkqStatus(Star):
             "请在 App 的插件连接设置里填入该密钥。"
         )
 
-    # ── LLM tools (AI 自然语言对话触发真实执行) ────────────────────
-    @filter.llm_tool(name="zkq_server_status")
-    async def llm_zkq_server_status(self, event: AstrMessageEvent):
-        """查询服务器硬件运行状态。"""
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        fields = await self._server_fields()
-        lines = ["服务器状态:"]
-        for key, value in fields:
-            lines.append(f"{key}: {value}")
-        return "\n".join(lines)
-
-    @filter.llm_tool(name="zkq_status")
-    async def llm_zkq_status(self, event: AstrMessageEvent, device: str = None):
-        """查询指定设备或全部设备的当前运行状态。
-
-        Args:
-            device(string): 设备名称，如果未指定则查询默认设备。
-        """
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        return self._format_status((device or "").strip())
-
-    @filter.llm_tool(name="zkq_logs")
-    async def llm_zkq_logs(
-        self,
-        event: AstrMessageEvent,
-        action: str = "get",
-        device: str = None,
-        days: int = 0,
-        lines: int = 0,
-        hours: int = 0,
-    ):
-        """获取或清空设备运行日志。
-
-        Args:
-            action(string): 动作类型，'get'（获取日志包）或 'clear'（清空日志）。
-            device(string): 设备名称，缺省为默认单设备。
-            days(number): 获取或清理最近天数。
-            lines(number): 获取日志最近行数。
-            hours(number): 获取日志最近小时数。
-        """
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        act = (action or "").strip().lower()
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-
-        if act in ("clear", "delete", "清空", "删除"):
-            if not event.is_private_chat():
-                return "仅私聊可用。"
-            d = max(0, min(int(days or 0), 30))
-            data, err = await self._request_query(device, "clearlogs", days=d, max_chars=0)
-            if err:
-                return err
-            if not data or not data.get("ok"):
-                return (data or {}).get("error") or f"设备「{device}」删除失败"
-            return str(data.get("data") or "已删除")
-
-        n = max(0, min(int(lines or 0), 200_000))
-        h = max(0, min(int(hours or 0), 24 * 30))
-        d = max(0, min(int(days or 0), 365))
-        data, err = await self._request_query(
-            device, "logfile", lines=n, days=d, hours=h, max_chars=0
-        )
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」打包失败"
-        filename = str(data.get("data") or "")
-        if not filename:
-            return f"设备「{device}」打包失败"
-        path = _SCREENSHOT_DIR / Path(filename).name
-        if not path.exists():
-            return f"设备「{device}」打包失败"
-        scope = f"最近{d}天" if d > 0 else (f"最近{h}小时" if h > 0 else (f"最近{n}行" if n > 0 else "全部保留"))
-        await event.send(
-            self._file_result(event, str(path), f"{device}_日志_{scope}_{time.strftime('%m%d_%H%M%S')}.zip")
-        )
-        return f"已发送日志压缩包（{scope}）"
-
-    @filter.llm_tool(name="zkq_screenshot")
-    async def llm_zkq_screenshot(self, event: AstrMessageEvent, device: str = None):
-        """获取设备实时屏幕截图。
-
-        Args:
-            device(string): 设备名称，缺省为默认单设备。
-        """
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        path = await self._take_screenshot(device)
-        if not path:
-            return f"截图失败：设备「{device}」离线或未响应"
-        await event.send(
-            self._file_result(event, path, f"{device}_截图_{time.strftime('%m%d_%H%M%S')}.zip")
-        )
-        return f"已发送截图"
-
-    @filter.llm_tool(name="zkq_control")
-    async def llm_zkq_control(self, event: AstrMessageEvent, action: str, device: str = None):
-        """远程启动或停止设备挂机。
-
-        Args:
-            action(string): 控制动作，可选 'start'（启动）或 'stop'（停止/暂停）。
-            device(string): 设备名称，缺省为默认单设备。
-        """
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        act = (action or "").strip().lower()
-        if act not in ("start", "stop", "run", "pause", "启动", "停止", "暂停"):
-            return "操作参数错误，必须为 start（启动）或 stop（停止/暂停）。"
-        query_type = "start" if act in ("start", "run", "启动") else "stop"
-        act_cn = "启动" if query_type == "start" else "暂停"
-
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        data, err = await self._request_query(device, query_type)
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」{act_cn}失败"
-        return f"设备「{device}」：" + str((data or {}).get("data") or f"已{act_cn}运行")
-
-    @filter.llm_tool(name="zkq_devices")
-    async def llm_zkq_devices(self, event: AstrMessageEvent):
-        """查看已上报的紫孔雀设备列表及其在线状态。"""
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        return self._format_devices()
-
-    @filter.llm_tool(name="zkq_errors")
-    async def llm_zkq_errors(self, event: AstrMessageEvent, device: str = None):
-        """查看设备最近的错误日志（error.log）。
-
-        Args:
-            device(string): 设备名称，缺省为默认单设备。
-        """
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        dev, hint = self._resolve_device((device or "").strip(), "错误")
-        if dev is None:
-            return hint
-        return await self._query_tail(dev, "errors")
-
-    @filter.llm_tool(name="zkq_ping")
-    async def llm_zkq_ping(self, event: AstrMessageEvent, device: str = None):
-        """测试与指定紫孔雀设备的网络连通性。
-
-        Args:
-            device(string): 设备名称，缺省为默认单设备。
-        """
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        dev, hint = self._resolve_device((device or "").strip(), "ping")
-        if dev is None:
-            return hint
-        data, err = await self._request_query(dev, "ping")
-        if err:
-            return err
-        ok = bool(data and data.get("ok"))
-        result_txt = "正常" if ok else "失败"
-        payload = data.get("data") if ok else (data or {}).get("error") or "无响应"
-        return f"设备「{dev}」连接测试：{result_txt}（{payload}）"
-
-    @filter.llm_tool(name="zkq_token")
-    async def llm_zkq_token(self, event: AstrMessageEvent):
-        """重置并重新生成设备通讯密钥（仅私聊可用）。"""
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        tok = secrets.token_hex(16)
-        self.config["token"] = tok
-        try:
-            await self.config.save_config_async()
-        except Exception as e:
-            return f"重置失败：{e}"
-        await self._kick_all_conns()
-        return f"已重置设备通讯密钥：{tok}\n请在 App 的插件连接设置里填入该密钥。"
-
-    @filter.llm_tool(name="zkq_qr_extract")
-    async def llm_zkq_qr_extract(
-        self,
-        event: AstrMessageEvent,
-        slot: int,
-        device: str = None,
-        login: str = None,
-    ):
-        """开启远程扫码链接账号并提取存档流程（仅私聊可用）。
-
-        Args:
-            slot(number): 存档槽位编号（正整数，如 1、2、3）。
-            device(string): 设备名称，缺省为默认单设备。
-            login(string): 登录方式，可选 'qq'（QQ）或 'wechat'（微信），不填则稍后在对话中选择。
-        """
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        dev, hint = self._resolve_device((device or "").strip(), "扫码提取")
-        if dev is None:
-            return hint
-        if slot <= 0:
-            return f"槽位「{slot}」无效，请输入正整数"
-        parsed_login = self._parse_login(login) if login else None
-        existing = self._qr_tasks.get(dev)
-        if existing and not existing.done():
-            return f"设备「{dev}」已有提取会话进行中，可告知'继续提取'或'结束提取'。"
-        data, err = await self._request_query(dev, "qr_start", slot=slot, login=parsed_login)
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{dev}」启动扫码提取失败"
-        self._qr_events[dev] = event
-        self._qr_tasks[dev] = asyncio.get_running_loop().create_task(
-            self._qr_poll_task(dev)
-        )
-        login_txt = self._login_txt(parsed_login)
-        return f"已通知设备「{dev}」开始扫码提取（槽位 {slot}，登录方式 {login_txt}）。二维码稍后会自动发送。"
-
-    @filter.llm_tool(name="zkq_qr_control")
-    async def llm_zkq_qr_control(
+    # ── LLM tool (全能 AI 自然语言驱动中枢) ────────────────────────
+    @filter.llm_tool(name="zkq_assistant")
+    async def llm_zkq_assistant(
         self,
         event: AstrMessageEvent,
         action: str,
         device: str = None,
+        slot: int = None,
+        login: str = None,
         param: str = None,
+        lines: int = 0,
+        days: int = 0,
+        hours: int = 0,
     ):
-        """控制扫码提取会话流程（选择登录方式、确认提取、取消提取、继续下一个、结束会话）（仅私聊可用）。
+        """紫孔雀脚本全能助手：支持状态查询、设备列表、远程启停、实时截图、日志拉取/清空、错误日志、网络测试、服务器监控、扫码提取存档等全套功能。
 
         Args:
-            action(string): 动作类型，可选：'choose'（选登录方式）、'confirm'（确认提取）、'cancel'（取消本轮）、'continue'（继续提下一号）、'finish'（结束会话恢复挂机）。
-            device(string): 设备名称，缺省为默认单设备。
-            param(string): 附加参数（选登录方式时为 'qq' 或 'wechat'；继续提取时为槽位数字如 '2' 或 '2 qq'）。
+            action(string): 执行的操作类型，可选：'status'（状态查询）、'devices'（设备列表）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图）、'logs'（获取日志）、'clearlogs'（清空日志）、'errors'（错误日志）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
+            device(string): 目标设备名称，单设备时可省略。
+            slot(number): 扫码提取时的槽位编号（正整数）。
+            login(string): 扫码提取登录方式，可选 'qq'（QQ）或 'wechat'（微信）。
+            param(string): 附加参数或说明。
+            lines(number): 获取日志最近行数。
+            days(number): 获取或清理日志最近天数。
+            hours(number): 获取日志最近小时数。
         """
-        if not event.is_private_chat():
-            return "仅私聊可用。"
         if not self._check_whitelist(event):
             return "无权限操作。"
-        dev, hint = self._resolve_device((device or "").strip(), "提取控制")
-        if dev is None:
-            return hint
+
         act = (action or "").strip().lower()
 
-        if act in ("choose", "登录方式", "选登录"):
-            parsed_login = self._parse_login(param or "")
+        # 1. 服务器硬件状态
+        if act in ("server", "服务器", "服务器状态"):
+            fields = await self._server_fields()
+            lines_list = ["服务器状态:"]
+            for key, value in fields:
+                lines_list.append(f"{key}: {value}")
+            return "\n".join(lines_list)
+
+        # 2. 设备列表
+        if act in ("devices", "设备列表", "设备"):
+            return self._format_devices()
+
+        # 3. 设备状态查询
+        if act in ("status", "状态", "all", "全部"):
+            return self._format_status((device or "").strip())
+
+        # 4. 重置密钥
+        if act in ("reset_token", "token", "重置密钥", "重置token"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            tok = secrets.token_hex(16)
+            self.config["token"] = tok
+            try:
+                await self.config.save_config_async()
+            except Exception as e:
+                return f"重置失败：{e}"
+            await self._kick_all_conns()
+            return f"已重置设备通讯密钥：{tok}\n请在 App 的插件连接设置里填入该密钥。"
+
+        # 下列操作均需要定位具体设备
+        dev, hint = self._resolve_device((device or "").strip(), act)
+        if dev is None:
+            return hint
+
+        # 5. 启动
+        if act in ("start", "启动", "运行", "run"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            data, err = await self._request_query(dev, "start")
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{dev}」启动失败"
+            return f"设备「{dev}」：" + str((data or {}).get("data") or "已启动运行")
+
+        # 6. 停止 / 暂停
+        if act in ("stop", "停止", "暂停", "pause"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            data, err = await self._request_query(dev, "stop")
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{dev}」停止失败"
+            return f"设备「{dev}」：" + str((data or {}).get("data") or "已暂停运行")
+
+        # 7. 截图
+        if act in ("screenshot", "截图", "截屏"):
+            path = await self._take_screenshot(dev)
+            if not path:
+                return f"截图失败：设备「{dev}」离线或未响应"
+            await event.send(
+                self._file_result(event, path, f"{dev}_截图_{time.strftime('%m%d_%H%M%S')}.zip")
+            )
+            return f"已发送设备「{dev}」的实时截图文件。"
+
+        # 8. 日志压缩包
+        if act in ("logs", "日志", "logfile", "日志文件"):
+            n = max(0, min(int(lines or 0), 200_000))
+            h = max(0, min(int(hours or 0), 24 * 30))
+            d = max(0, min(int(days or 0), 365))
+            data, err = await self._request_query(
+                dev, "logfile", lines=n, days=d, hours=h, max_chars=0
+            )
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{dev}」打包失败"
+            filename = str(data.get("data") or "")
+            if not filename:
+                return f"设备「{dev}」打包失败"
+            path = _SCREENSHOT_DIR / Path(filename).name
+            if not path.exists():
+                return f"设备「{dev}」打包失败"
+            scope = f"最近{d}天" if d > 0 else (f"最近{h}小时" if h > 0 else (f"最近{n}行" if n > 0 else "全部保留"))
+            await event.send(
+                self._file_result(event, str(path), f"{dev}_日志_{scope}_{time.strftime('%m%d_%H%M%S')}.zip")
+            )
+            return f"已发送日志压缩包（{scope}）"
+
+        # 9. 清空日志
+        if act in ("clearlogs", "清空日志", "删除日志"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            d = max(0, min(int(days or 0), 30))
+            data, err = await self._request_query(dev, "clearlogs", days=d, max_chars=0)
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{dev}」删除失败"
+            return str(data.get("data") or "已清空日志")
+
+        # 10. 错误日志
+        if act in ("errors", "错误", "错误日志"):
+            return await self._query_tail(dev, "errors")
+
+        # 11. ping
+        if act in ("ping", "Ping", "连通性", "测试"):
+            data, err = await self._request_query(dev, "ping")
+            if err:
+                return err
+            ok = bool(data and data.get("ok"))
+            result_txt = "正常" if ok else "失败"
+            payload = data.get("data") if ok else (data or {}).get("error") or "无响应"
+            return f"设备「{dev}」连接测试：{result_txt}（{payload}）"
+
+        # 12. 扫码提取
+        if act in ("qr_extract", "扫码提取", "扫码"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            if slot is None or slot <= 0:
+                return "扫码提取需要指定槽位编号（正整数），如 slot=1"
+            parsed_login = self._parse_login(login or param or "")
+            existing = self._qr_tasks.get(dev)
+            if existing and not existing.done():
+                return f"设备「{dev}」已有提取会话进行中，可告知'继续提取'或'结束提取'。"
+            data, err = await self._request_query(dev, "qr_start", slot=slot, login=parsed_login)
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{dev}」启动扫码提取失败"
+            self._qr_events[dev] = event
+            self._qr_tasks[dev] = asyncio.get_running_loop().create_task(
+                self._qr_poll_task(dev)
+            )
+            login_txt = self._login_txt(parsed_login)
+            return f"已通知设备「{dev}」开始扫码提取（槽位 {slot}，登录方式 {login_txt}）。二维码稍后会自动发送。"
+
+        # 13. 选择登录方式
+        if act in ("qr_choose", "登录方式", "选登录"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            parsed_login = self._parse_login(login or param or "")
             if not parsed_login:
                 return "请指定登录方式（QQ 或 微信）。"
             data, err = await self._request_query(dev, "qr_choose", login=parsed_login)
@@ -1588,39 +1488,49 @@ class ZkqStatus(Star):
             login_txt = "QQ" if parsed_login == "qq" else "微信"
             return f"已为设备「{dev}」选择 {login_txt} 登录。"
 
-        if act in ("confirm", "确认", "确认提取"):
+        # 14. 确认提取
+        if act in ("qr_confirm", "确认提取", "确认"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
             data, err = await self._request_query(dev, "qr_confirm")
             if err:
                 return err
             return f"已确认，设备「{dev}」正在提取存档。"
 
-        if act in ("cancel", "取消", "取消提取", "中止"):
+        # 15. 取消提取
+        if act in ("qr_cancel", "取消提取", "取消"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
             data, err = await self._request_query(dev, "qr_cancel")
             if err:
                 return err
             return f"已通知设备「{dev}」取消提取。"
 
-        if act in ("continue", "继续", "继续提取", "next"):
-            slot_login = (param or "").strip().split()
-            if not slot_login:
-                return "继续提取需要指定槽位，如：继续提取 2 QQ"
-            target = f"{dev} {param}"
-            _, slot, login, err_hint = self._parse_qr_target(target, "继续提取", "")
-            if err_hint or slot is None:
-                return err_hint or "槽位参数错误"
-            data, err = await self._request_query(dev, "qr_continue", slot=slot, login=login)
+        # 16. 继续提取
+        if act in ("qr_continue", "继续提取", "继续"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            slot_login = (param or "").strip().split() if param else []
+            s = slot or (int(slot_login[0]) if slot_login and slot_login[0].isdigit() else None)
+            if s is None or s <= 0:
+                return "继续提取需要指定槽位编号，如 slot=2"
+            lg = self._parse_login(login or (slot_login[1] if len(slot_login) > 1 else "") or "")
+            data, err = await self._request_query(dev, "qr_continue", slot=s, login=lg)
             if err:
                 return err
-            login_txt = self._login_txt(login)
-            return f"已安排设备「{dev}」继续提取（槽位 {slot}，登录方式 {login_txt}）。"
+            login_txt = self._login_txt(lg)
+            return f"已安排设备「{dev}」继续提取（槽位 {s}，登录方式 {login_txt}）。"
 
-        if act in ("finish", "结束", "结束提取", "完成"):
+        # 17. 结束提取
+        if act in ("qr_finish", "结束提取", "结束"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
             data, err = await self._request_query(dev, "qr_finish")
             if err:
                 return err
             return f"已结束设备「{dev}」的提取会话，设备即将重启恢复挂机。"
 
-        return f"未知提取动作「{act}」，可选：choose / confirm / cancel / continue / finish"
+        return f"未知操作指令「{act}」，可选：status / devices / start / stop / screenshot / logs / clearlogs / errors / ping / server / qr_extract 等。"
 
     # ── Query helpers ───────────────────────────────────────────────
     def _resolve_device(self, device: str, action: str) -> tuple[str | None, str | None]:
@@ -1788,48 +1698,14 @@ class ZkqStatus(Star):
                 return
             mgr = self.context.get_llm_tool_manager()
             dev_txt = "、".join(devices)
-            plan = [
-                (
-                    "zkq_status",
-                    f"查询紫孔雀脚本设备的运行状态（当前账号、运行模式、最近事件）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_control",
-                    f"远程启动或停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。action 可选 'start' 或 'stop'。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_screenshot",
-                    f"获取指定紫孔雀脚本设备的当前屏幕实时截图并发送。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_logs",
-                    f"获取或清空紫孔雀脚本设备的运行日志（action: 'get' | 'clear'）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_errors",
-                    f"查看紫孔雀脚本设备的最近错误日志（error.log）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_ping",
-                    f"测试与指定紫孔雀脚本设备的网络连通性。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_qr_extract",
-                    f"开启远程扫码链接账号并提取存档流程（仅私聊可用）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_qr_control",
-                    f"控制扫码提取会话流程（选登录方式/确认/取消/继续下一号/结束会话）（仅私聊可用）。当前设备：{dev_txt}。",
-                ),
-            ]
-            for name, desc in plan:
-                ft = mgr.get_func(name)
-                if ft is None:
-                    continue
-                ft.description = desc
+            ft = mgr.get_func("zkq_assistant")
+            if ft is not None:
+                ft.description = (
+                    f"紫孔雀脚本全能助手：支持状态查询、设备列表、远程启停、实时截图、日志拉取/清空、错误日志、网络测试、服务器监控、扫码提取存档等全套功能。当前在线设备：{dev_txt}。"
+                )
                 props = ft.parameters.get("properties") or {}
                 if "device" in props:
-                    props["device"]["description"] = f"设备名，当前可选：{dev_txt}。"
+                    props["device"]["description"] = f"目标设备名称，当前可选设备：{dev_txt}。"
             self._tool_desc_sig = tuple(devices)
             logger.info(f"[zkq] tool descriptions refreshed: {dev_txt}")
         except Exception as e:
