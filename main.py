@@ -637,10 +637,90 @@ class ZkqStatus(Star):
         return data, None
 
     # ── Commands ────────────────────────────────────────────────────
-    @filter.command_group("zkq")
-    async def zkq_group(self, event: AstrMessageEvent):
-        """紫孔雀脚本管理指令（输入 /zkq 查看完整指令菜单）"""
-        yield event.plain_result(self._help_text())
+    @filter.command("zkq", alias={"zkq帮助", "zkq 帮助", "zkq help"})
+    async def zkq_cmd(self, event: AstrMessageEvent, sub: str = "", rest: GreedyStr = ""):
+        """紫孔雀脚本助手管理指令（/zkq 查看完整指令菜单）"""
+        sub = sub.strip()
+        if not sub or sub in ("帮助", "help", "?", "？"):
+            yield event.plain_result(self._help_text())
+            return
+        if sub in ("启动", "start", "运行", "run"):
+            async for r in self.start_cmd(event, rest):
+                yield r
+            return
+        if sub in ("停止", "stop", "暂停", "pause"):
+            async for r in self.stop_cmd(event, rest):
+                yield r
+            return
+        if sub in ("设备列表", "devices"):
+            async for r in self.devices_cmd(event):
+                yield r
+            return
+        if sub in ("全部", "all"):
+            async for r in self.all_cmd(event):
+                yield r
+            return
+        if sub in ("状态", "status"):
+            async for r in self.status_cmd(event, rest):
+                yield r
+            return
+        if sub in ("日志", "logs"):
+            async for r in self.logs_cmd(event, rest):
+                yield r
+            return
+        if sub in ("清空日志", "clearlogs"):
+            async for r in self.clearlogs_cmd(event, rest):
+                yield r
+            return
+        if sub in ("日志文件", "logfile"):
+            async for r in self.logfile_cmd(event, rest):
+                yield r
+            return
+        if sub in ("错误", "errors"):
+            async for r in self.errors_cmd(event, rest):
+                yield r
+            return
+        if sub in ("ping", "Ping"):
+            async for r in self.ping_cmd(event, rest):
+                yield r
+            return
+        if sub in ("服务器", "server", "服务器状态"):
+            async for r in self.server_cmd(event):
+                yield r
+            return
+        if sub in ("截图", "screenshot"):
+            async for r in self.screenshot_cmd(event, rest):
+                yield r
+            return
+        if sub in ("扫码提取", "qrlink", "扫码"):
+            async for r in self.qr_extract_cmd(event, rest):
+                yield r
+            return
+        if sub in ("登录方式", "choose", "选登录"):
+            async for r in self.qr_choose_cmd(event, rest):
+                yield r
+            return
+        if sub in ("确认提取", "confirm"):
+            async for r in self.qr_confirm_cmd(event, rest):
+                yield r
+            return
+        if sub in ("取消提取", "cancel"):
+            async for r in self.qr_cancel_cmd(event, rest):
+                yield r
+            return
+        if sub in ("继续提取", "qrnext", "继续"):
+            async for r in self.qr_continue_cmd(event, rest):
+                yield r
+            return
+        if sub in ("结束提取", "qrfinish", "结束"):
+            async for r in self.qr_finish_cmd(event, rest):
+                yield r
+            return
+        if sub in ("重置token", "token", "重置密钥"):
+            async for r in self.token_cmd(event):
+                yield r
+            return
+        yield event.plain_result(f"未知子命令「{sub}」，输入 /zkq 查看完整指令菜单。")
 
     def _help_text(self) -> str:
         return (
@@ -663,15 +743,8 @@ class ZkqStatus(Star):
             "- `/zkq 错误 <设备>` — error.log 尾部\n"
             "- `/zkq ping <设备>` — 测试连接\n"
             "- `/zkq 重置token` — 重置设备通讯密钥（仅私聊）\n"
-            "- `/zkq 帮助` — 本帮助\n"
         )
 
-    @zkq_group.command("帮助", alias={"help"})
-    async def help_cmd(self, event: AstrMessageEvent):
-        """查看紫孔雀脚本助手完整指令菜单"""
-        yield event.plain_result(self._help_text())
-
-    @zkq_group.command("启动", alias={"start", "运行", "run"})
     async def start_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """远程启动脚本挂机（仅私聊）"""
         if not event.is_private_chat():
@@ -694,7 +767,6 @@ class ZkqStatus(Star):
         msg = (data or {}).get("data") or "已启动运行"
         yield event.plain_result(f"▶️ 设备「{device}」：{msg}")
 
-    @zkq_group.command("停止", alias={"stop", "暂停", "pause"})
     async def stop_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """远程暂停脚本挂机（仅私聊）"""
         if not event.is_private_chat():
@@ -717,7 +789,6 @@ class ZkqStatus(Star):
         msg = (data or {}).get("data") or "已暂停运行"
         yield event.plain_result(f"⏸️ 设备「{device}」：{msg}")
 
-    @zkq_group.command("设备列表", alias={"devices"})
     async def devices_cmd(self, event: AstrMessageEvent):
         """查看已上报设备与在线状态"""
         if not self._check_whitelist(event):
@@ -725,7 +796,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(self._format_devices())
 
-    @zkq_group.command("状态", alias={"status"})
     async def status_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """查询设备当前运行状态"""
         if not self._check_whitelist(event):
@@ -734,7 +804,6 @@ class ZkqStatus(Star):
         device = str(rest).strip()
         yield event.plain_result(self._format_status(device))
 
-    @zkq_group.command("全部", alias={"all"})
     async def all_cmd(self, event: AstrMessageEvent):
         """查看所有设备汇总状态"""
         if not self._check_whitelist(event):
@@ -742,7 +811,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(self._format_all())
 
-    @zkq_group.command("日志", alias={"logs"})
     async def logs_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """查看设备最近运行日志"""
         if not self._check_whitelist(event):
@@ -754,7 +822,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(await self._query_tail(device, "logs"))
 
-    @zkq_group.command("清空日志", alias={"clearlogs"})
     async def clearlogs_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """清空设备历史运行日志（仅私聊）"""
         if not event.is_private_chat():
@@ -777,7 +844,6 @@ class ZkqStatus(Star):
         cleared = (data or {}).get("data", "日志已清空")
         yield event.plain_result(f"🗑️ {device} {cleared}")
 
-    @zkq_group.command("日志文件", alias={"logfile"})
     async def logfile_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """打包下载设备完整日志压缩包"""
         if not self._check_whitelist(event):
@@ -810,7 +876,6 @@ class ZkqStatus(Star):
         path = _SCREENSHOT_DIR / Path(filename).name
         return str(path) if path.exists() else None
 
-    @zkq_group.command("错误", alias={"errors"})
     async def errors_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """查看设备最近错误日志"""
         if not self._check_whitelist(event):
@@ -822,7 +887,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(await self._query_tail(device, "errors"))
 
-    @zkq_group.command("ping")
     async def ping_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """测试与设备的网络连接"""
         if not self._check_whitelist(event):
@@ -843,7 +907,6 @@ class ZkqStatus(Star):
             f"## 🏓 {device} 连接测试\n\n**结果**：{result_txt}\n\n> {payload}"
         )
 
-    @zkq_group.command("服务器", alias={"server", "服务器状态"})
     async def server_cmd(self, event: AstrMessageEvent):
         """查询服务器硬件运行状态"""
         if not self._check_whitelist(event):
@@ -852,7 +915,6 @@ class ZkqStatus(Star):
         fields = await self._server_fields()
         yield event.plain_result(format_server_text(fields))
 
-    @zkq_group.command("截图", alias={"screenshot"})
     async def screenshot_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """获取设备实时屏幕截图"""
         if not self._check_whitelist(event):
@@ -942,7 +1004,6 @@ class ZkqStatus(Star):
             return (None, None, None, hint)
         return (device, int(slot_part), login, None)
 
-    @zkq_group.command("扫码提取", alias={"qrlink", "扫码"})
     async def qr_extract_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """远程扫码链接账号并提取存档（仅私聊）"""
         if not event.is_private_chat():
@@ -984,7 +1045,6 @@ class ZkqStatus(Star):
             f"✅ 已通知设备「{device}」开始扫码提取（槽位 {slot}，登录方式 {login_txt}）。二维码稍后发来。"
         )
 
-    @zkq_group.command("登录方式", alias={"choose", "选登录"})
     async def qr_choose_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """指定扫码登录方式（仅私聊）"""
         if not event.is_private_chat():
@@ -1016,7 +1076,6 @@ class ZkqStatus(Star):
         login_txt = "QQ" if login == "qq" else "微信"
         yield event.plain_result(f"🔐 已选择 {login_txt}，设备「{device}」正在继续")
 
-    @zkq_group.command("确认提取", alias={"confirm"})
     async def qr_confirm_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """村庄截图后确认并提取存档（仅私聊）"""
         if not event.is_private_chat():
@@ -1038,7 +1097,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(f"✅ 已确认，设备「{device}」正在提取存档")
 
-    @zkq_group.command("取消提取", alias={"cancel"})
     async def qr_cancel_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """中止当前提取流程（仅私聊）"""
         if not event.is_private_chat():
@@ -1060,7 +1118,6 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(f"🚫 已通知设备「{device}」取消提取")
 
-    @zkq_group.command("继续提取", alias={"qrnext", "继续"})
     async def qr_continue_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """继续提取下一个账号（仅私聊）"""
         if not event.is_private_chat():
@@ -1092,7 +1149,6 @@ class ZkqStatus(Star):
             f"✅ 已安排设备「{device}」继续提取（槽位 {slot}，登录方式 {login_txt}）"
         )
 
-    @zkq_group.command("结束提取", alias={"qrfinish", "结束"})
     async def qr_finish_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
         """结束提取会话并恢复挂机（仅私聊）"""
         if not event.is_private_chat():
@@ -1227,7 +1283,6 @@ class ZkqStatus(Star):
         except Exception as e:
             logger.error(f"[zkq] qr send image failed: {e!r}")
 
-    @zkq_group.command("重置token", alias={"token", "重置密钥"})
     async def token_cmd(self, event: AstrMessageEvent):
         """重置设备通讯密钥（仅私聊）"""
         if not event.is_private_chat():
