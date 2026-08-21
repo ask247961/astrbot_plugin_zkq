@@ -5,10 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
-## [Unreleased]
+## [0.5.0-beta] - 2026-08-21
 
 ### Added
 
+- **单一 WS 通道合并支持**：
+  - WS 长连接支持直接接收 `type=snapshot` 快照帧，更新设备状态并回送 `snapshot_ack` 确认帧（下发推荐间隔与日志清理天数）
+  - 保留原有 `/zkq_snapshot` HTTP 接口以向下兼容旧版 App
 - **扫码提取多账号会话**（扩展 ADR-0003 → ADR-0004）：
   - `/zkq 扫码提取` 开启提取会话，每轮提取一个账号；轮间对话门 `/zkq 继续提取` / `/zkq 结束提取`，3 分钟未回复自动结束
   - 会话期间 bot 主流程（顺序/随机/升级时间三种模式）全程让位；会话结束设备自动杀进程重启恢复挂机

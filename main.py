@@ -454,6 +454,10 @@ class ZkqStatus(Star):
             data = json.loads(raw)
         except Exception:
             return
+        if data.get("type") == "snapshot":
+            # App 通过 WS 长连接主动推送的设备快照（单一长连接通道合并）
+            asyncio.get_running_loop().create_task(self._handle_ws_snapshot(device_id, data))
+            return
         if data.get("type") == "qr_notify":
             # App 主动推送的扫码提取结果（提取完成后不等轮询直接推送，ADR-0003）
             asyncio.get_running_loop().create_task(self._forward_qr_notify(device_id, data))
@@ -469,6 +473,61 @@ class ZkqStatus(Star):
         fut = self._pending.get(device_id, {}).get(request_id)
         if fut and not fut.done():
             fut.set_result(data)
+
+    async def _handle_ws_snapshot(self, device_id: str, data: dict) -> None:
+        """处理通过 WebSocket 上报的快照帧，并回送 snapshot_ack。"""
+        nonce = str(data.get("nonce") or "")
+        existing = self.snapshots.get(device_id)
+        if existing and existing.get("nonce") and nonce and existing["nonce"] != nonce:
+            logger.warning(
+                f"[zkq] ws snapshot rejected: nonce mismatch for {device_id} "
+                f"have={existing.get('nonce')!r} got={nonce!r}"
+            )
+            return
+
+        # Device rename migration: the same nonce under a different deviceId
+        stale = [
+            old_id
+            for old_id, rec in self.snapshots.items()
+            if old_id != device_id and nonce and rec.get("nonce") == nonce
+        ]
+        for old_id in stale:
+            self.snapshots.pop(old_id, None)
+            old_conn = self.conns.pop(old_id, None)
+            self._conn_nonce.pop(old_id, None)
+            if old_conn and not old_conn.closed:
+                await old_conn.close(code=1001, message=b"renamed")
+            logger.info(f"[zkq] renamed via ws: {old_id} -> {device_id}")
+
+        try:
+            ts = float(data.get("ts") or time.time())
+        except (TypeError, ValueError):
+            ts = time.time()
+        snap = data.get("snapshot") or {}
+        if not isinstance(snap, dict):
+            snap = {}
+        self.snapshots[device_id] = {
+            "snapshot": snap,
+            "ts": ts,
+            "nonce": nonce,
+        }
+        await self._persist_async()
+        sig = tuple(sorted(self.snapshots))
+        if sig != self._tool_desc_sig:
+            self._refresh_tool_descriptions()
+
+        # 回送 ACK 帧给设备（下发心跳频率和日志清理天数）
+        conn = self.conns.get(device_id)
+        if conn and not conn.closed:
+            ack = {
+                "type": "snapshot_ack",
+                "recommended_interval": int(self.config.get("snapshot_interval", 60)),
+                "log_retention_days": int(self.config.get("log_retention_days", 7)),
+            }
+            try:
+                await conn.send_str(json.dumps(ack))
+            except Exception as e:
+                logger.warning(f"[zkq] failed to send snapshot_ack to {device_id}: {e}")
 
     async def _forward_qr_notify(self, device_id: str, data: dict) -> None:
         """App 主动推送的通知（会话提示/会话结束）→ 转发到发起扫码提取的会话。"""

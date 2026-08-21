@@ -10,7 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/AstrBot-%3E%3D4.0-blue?style=flat-square" alt="AstrBot >= 4.0">
-  <img src="https://img.shields.io/badge/version-0.4.0--beta-orange?style=flat-square" alt="Version 0.4.0-beta">
+  <img src="https://img.shields.io/badge/version-0.5.0--beta-orange?style=flat-square" alt="Version 0.5.0-beta">
   <img src="https://img.shields.io/badge/platform-qq_official%2Faiocqhttp-green?style=flat-square" alt="qq_official / aiocqhttp">
 </p>
 

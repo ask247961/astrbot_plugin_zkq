@@ -1,7 +1,7 @@
 name: astrbot_plugin_zkq
 author: zkq
 desc: 紫孔雀挂机脚本助手：QQ 查看脚本状态、服务器状态、日志打包、实时截图、AI 对话查询；支持扫码提取存档（破坏性操作，仅私聊）
-version: "0.4.0-beta"
+version: "0.5.0-beta"
 display_name: 紫孔雀助手(beta)
 short_desc: QQ 查看脚本状态 / 日志 / 截图
 astrbot_version: ">=4.0.0"

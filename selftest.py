@@ -77,7 +77,20 @@ async def main():
                           str(old_closed))
                 except Exception as e:
                     check("旧连接被替换关闭", False, str(e))
-            # 4. 垃圾结果帧（无 pending）不应导致断开
+            # 4. WS 快照上报（合并通道测试）
+            snap_frame = {
+                "type": "snapshot",
+                "deviceId": DEVICE,
+                "nonce": NONCE,
+                "snapshot": {"mode": "升级时间上号", "running": True, "currentAccount": 3, "lastEvent": "ws snapshot ok"},
+                "ts": time.time(),
+            }
+            await ws2.send_str(json.dumps(snap_frame))
+            ack_msg = await asyncio.wait_for(ws2.receive(), timeout=3)
+            ack_data = json.loads(ack_msg.data) if ack_msg.type == aiohttp.WSMsgType.TEXT else {}
+            check("WS 快照上报收到 snapshot_ack", ack_data.get("type") == "snapshot_ack", ack_data)
+
+            # 4b. 垃圾结果帧（无 pending）不应导致断开
             await ws2.send_str(json.dumps({"requestId": 99999, "ok": True, "data": "x"}))
             await asyncio.sleep(1)
             check("垃圾帧后连接仍存活", not ws2.closed)
