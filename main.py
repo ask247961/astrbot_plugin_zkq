@@ -680,6 +680,7 @@ class ZkqStatus(Star):
     # ── Commands ────────────────────────────────────────────────────
     @filter.command_group("zkq")
     async def zkq_group(self, event: AstrMessageEvent):
+        """紫孔雀脚本管理指令（输入 /zkq 查看完整指令菜单）"""
         yield event.plain_result(self._help_text())
 
     @zkq_group.command("启动", alias={"start", "运行", "run"})
@@ -1235,7 +1236,7 @@ class ZkqStatus(Star):
 
     @filter.regex(r"^zkq\s*$")
     async def bare_group_help(self, event: AstrMessageEvent):
-        """裸 /zkq：展示命令列表，替代核心的"参数不足"报错。"""
+        """输入 /zkq 时快速展示指令菜单"""
         if not event.is_at_or_wake_command:
             return
         yield event.plain_result(self._help_text())
@@ -1298,7 +1299,7 @@ class ZkqStatus(Star):
     # ── LLM tools (AI chat can query device status on demand) ────────
     @filter.llm_tool(name="zkq_server_status")
     async def llm_zkq_server_status(self, event: AstrMessageEvent):
-        """查询 AstrBot 所在服务器的状态（CPU、内存、磁盘、开机时长）。
+        """查询 AstrBot 运行服务器的硬件状态（CPU、内存、磁盘利用率）。
 
         Args:
             (无参数)
@@ -1313,7 +1314,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_status")
     async def llm_zkq_status(self, event: AstrMessageEvent, device: str = None):
-        """查询紫孔雀脚本设备的状态（当前账号、运行模式、下次升级、最近事件、在线与否）。
+        """查询紫孔雀脚本设备的运行状态（当前账号、运行模式、下次升级、最近事件）。
 
         Args:
             device(string, optional): 设备名，不填默认唯一设备。
@@ -1331,13 +1332,13 @@ class ZkqStatus(Star):
         hours: int = 0,
         days: int = 0,
     ):
-        """把紫孔雀脚本设备的日志打包成文件发送。可按范围截取，不传范围=全部日志。
+        """打包并发送紫孔雀脚本设备的运行日志压缩包。
 
         Args:
             device(string, optional): 设备名，不填默认唯一设备。
             lines(number, optional): 最近多少行。
             hours(number, optional): 最近多少小时。
-            days(number, optional): 最近多少天（不能大于设备日志保留天数，否则只能拿到保留期内的日志）。
+            days(number, optional): 最近多少天（不填默认全部保留日志）。
         """
         if not self._check_whitelist(event):
             return "无权限查询。"
@@ -1377,7 +1378,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_clear_logs")
     async def llm_zkq_clear_logs(self, event: AstrMessageEvent, device: str = None, days: int = 0):
-        """删除紫孔雀脚本设备的日志（仅私聊可用）。
+        """删除指定紫孔雀脚本设备的历史日志文件（仅私聊可用）。
 
         Args:
             device(string, optional): 设备名，不填默认唯一设备。
@@ -1407,7 +1408,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_screenshot")
     async def llm_zkq_screenshot(self, event: AstrMessageEvent, device: str = None):
-        """截图紫孔雀脚本设备当前屏幕发送。
+        """获取指定紫孔雀脚本设备的当前屏幕实时截图并发送。
 
         Args:
             device(string, optional): 设备名，不填默认唯一设备。
@@ -1462,7 +1463,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_stop_device")
     async def llm_zkq_stop_device(self, event: AstrMessageEvent, device: str = None):
-        """远程停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。
+        """远程暂停/停止指定的紫孔雀脚本挂机（仅私聊可用）。
 
         Args:
             device(string, optional): 设备名，不填默认唯一设备。
@@ -1490,7 +1491,7 @@ class ZkqStatus(Star):
 
     @filter.regex(_KEYWORD_PATTERN)
     async def keyword_cmd(self, event: AstrMessageEvent):
-        """整句关键词触发（无 /zkq 前缀，doc §14.4）：消息恰好是关键词才响应。"""
+        """免前缀快捷响应：直接发送「状态」、「截图」、「服务器状态」等关键词快捷触发。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
