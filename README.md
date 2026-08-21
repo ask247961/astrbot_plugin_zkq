@@ -2,7 +2,7 @@
   <img src="logo.png" alt="logo" width="200">
 </p>
 
-<p align="center">紫孔雀状态查询</p>
+<h1 align="center">紫孔雀插件</h1>
 
 基于 AstrBot 的紫孔雀挂机脚本状态查询插件：设备定时上报状态，QQ 里随时查看脚本运行情况、拉取日志、截图（查询类**只读**）；另支持扫码提取存档（操控脚本，仅私聊）。
 
