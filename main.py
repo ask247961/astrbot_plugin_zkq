@@ -115,6 +115,7 @@ class ZkqStatus(Star):
         self._tool_desc_sig: tuple | None = None
         self._refresh_tool_descriptions()
         self._ensure_token()
+        self._clean_handler_descriptions()
         if config.get("enabled", False):
             self._bg_task = asyncio.create_task(self._run_server())
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
@@ -122,6 +123,16 @@ class ZkqStatus(Star):
             f"[zkq] loaded enabled={config.get('enabled', False)} "
             f"port={config.get('server_port', 16841)} devices={len(self.snapshots)}"
         )
+
+    def _clean_handler_descriptions(self) -> None:
+        """优化 WebUI 插件行为卡片中显示的描述文本为精简中文。"""
+        try:
+            from astrbot.core.star.star_handler import star_handlers_registry
+            for full_name, handler_md in star_handlers_registry.star_handlers_map.items():
+                if "llm_zkq_assistant" in full_name:
+                    handler_md.desc = "紫孔雀脚本助手自然语言管理"
+        except Exception:
+            pass
 
     # ── Server (single port: snapshot POST + WS) ─────────────────────
     async def _run_server(self) -> None:
@@ -1320,7 +1331,7 @@ class ZkqStatus(Star):
         days: int = 0,
         hours: int = 0,
     ):
-        """紫孔雀脚本全能助手：支持状态查询、设备列表、远程启停、实时截图、日志拉取/清空、错误日志、网络测试、服务器监控、扫码提取存档等全套功能。
+        """紫孔雀脚本助手自然语言管理
 
         Args:
             action(string): 执行的操作类型，可选：'status'（状态查询）、'devices'（设备列表）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图）、'logs'（获取日志）、'clearlogs'（清空日志）、'errors'（错误日志）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
@@ -1700,9 +1711,7 @@ class ZkqStatus(Star):
             dev_txt = "、".join(devices)
             ft = mgr.get_func("zkq_assistant")
             if ft is not None:
-                ft.description = (
-                    f"紫孔雀脚本全能助手：支持状态查询、设备列表、远程启停、实时截图、日志拉取/清空、错误日志、网络测试、服务器监控、扫码提取存档等全套功能。当前在线设备：{dev_txt}。"
-                )
+                ft.description = f"紫孔雀脚本助手自然语言管理。当前在线设备：{dev_txt}。"
                 props = ft.parameters.get("properties") or {}
                 if "device" in props:
                     props["device"]["description"] = f"目标设备名称，当前可选设备：{dev_txt}。"
