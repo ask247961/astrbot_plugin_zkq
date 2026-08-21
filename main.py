@@ -637,14 +637,14 @@ class ZkqStatus(Star):
         return data, None
 
     # ── Commands ────────────────────────────────────────────────────
-    @filter.command_group("zkq")
-    async def zkq_group(self, event: AstrMessageEvent):
-        """紫孔雀脚本管理指令（输入 /zkq 查看完整指令菜单）"""
+    @filter.command("zkq", alias={"zkq帮助", "zkq help", "zkq 帮助"})
+    async def zkq_cmd(self, event: AstrMessageEvent):
+        """紫孔雀脚本总览与帮助菜单。"""
         yield event.plain_result(self._help_text())
 
-    @zkq_group.command("启动", alias={"start", "运行", "run"})
+    @filter.command("zkq启动", alias={"zkq 启动", "zkq start", "zkq 运行", "zkq run"})
     async def start_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
-        """远程启动脚本挂机：/zkq 启动 [设备]（仅私聊）"""
+        """远程启动设备挂机。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -665,9 +665,9 @@ class ZkqStatus(Star):
         msg = (data or {}).get("data") or "已启动运行"
         yield event.plain_result(f"▶️ 设备「{device}」：{msg}")
 
-    @zkq_group.command("停止", alias={"stop", "暂停", "pause"})
+    @filter.command("zkq停止", alias={"zkq 停止", "zkq stop", "zkq 暂停", "zkq pause"})
     async def stop_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
-        """远程停止/暂停脚本挂机：/zkq 停止 [设备]（仅私聊）"""
+        """远程暂停设备挂机。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -688,30 +688,26 @@ class ZkqStatus(Star):
         msg = (data or {}).get("data") or "已暂停运行"
         yield event.plain_result(f"⏸️ 设备「{device}」：{msg}")
 
-    @zkq_group.command("设备列表", alias={"devices"})
+    @filter.command("zkq设备列表", alias={"zkq 设备列表", "zkq devices", "zkq全部", "zkq 全部", "zkq all"})
     async def devices_cmd(self, event: AstrMessageEvent):
+        """查看已上报设备与在线状态。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
         yield event.plain_result(self._format_devices())
 
-    @zkq_group.command("状态", alias={"status"})
-    async def status_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
+    @filter.command("zkq状态", alias={"zkq 状态", "zkq status"})
+    async def status_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """查询设备当前运行状态。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
         device = str(rest).strip()
         yield event.plain_result(self._format_status(device))
 
-    @zkq_group.command("全部", alias={"all"})
-    async def all_cmd(self, event: AstrMessageEvent):
-        if not self._check_whitelist(event):
-            yield event.plain_result("无权限查询。")
-            return
-        yield event.plain_result(self._format_all())
-
-    @zkq_group.command("日志", alias={"logs"})
-    async def logs_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
+    @filter.command("zkq日志", alias={"zkq 日志", "zkq logs"})
+    async def logs_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """查看设备最近运行日志。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
@@ -721,9 +717,9 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(await self._query_tail(device, "logs"))
 
-    @zkq_group.command("清空日志", alias={"clearlogs"})
-    async def clearlogs_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """Deletes the device's retained logs (destructive; private chat only)."""
+    @filter.command("zkq清空日志", alias={"zkq 清空日志", "zkq clearlogs"})
+    async def clearlogs_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """删除设备历史运行日志。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -744,9 +740,9 @@ class ZkqStatus(Star):
         cleared = (data or {}).get("data", "日志已清空")
         yield event.plain_result(f"🗑️ {device} {cleared}")
 
-    @zkq_group.command("日志文件", alias={"logfile"})
-    async def logfile_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """Sends the device's full retained logs as a zip file."""
+    @filter.command("zkq日志文件", alias={"zkq 日志文件", "zkq logfile"})
+    async def logfile_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """完整日志打包 zip 发文件。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
@@ -777,8 +773,9 @@ class ZkqStatus(Star):
         path = _SCREENSHOT_DIR / Path(filename).name
         return str(path) if path.exists() else None
 
-    @zkq_group.command("错误", alias={"errors"})
-    async def errors_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
+    @filter.command("zkq错误", alias={"zkq 错误", "zkq errors"})
+    async def errors_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """查看设备最近错误日志。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
@@ -788,8 +785,9 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(await self._query_tail(device, "errors"))
 
-    @zkq_group.command("ping")
-    async def ping_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
+    @filter.command("zkq ping", alias={"zkq_ping", "zkqping"})
+    async def ping_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """测试与设备的网络连接。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
@@ -808,16 +806,18 @@ class ZkqStatus(Star):
             f"## 🏓 {device} 连接测试\n\n**结果**：{result_txt}\n\n> {payload}"
         )
 
-    @zkq_group.command("服务器", alias={"server", "服务器状态"})
+    @filter.command("zkq服务器", alias={"zkq 服务器", "zkq server", "zkq服务器状态", "zkq 服务器状态"})
     async def server_cmd(self, event: AstrMessageEvent):
+        """查询服务器硬件运行状态。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
         fields = await self._server_fields()
         yield event.plain_result(format_server_text(fields))
 
-    @zkq_group.command("截图", alias={"screenshot"})
-    async def screenshot_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
+    @filter.command("zkq截图", alias={"zkq 截图", "zkq screenshot"})
+    async def screenshot_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """获取设备实时屏幕截图。"""
         if not self._check_whitelist(event):
             yield event.plain_result("无权限查询。")
             return
@@ -905,12 +905,9 @@ class ZkqStatus(Star):
             return (None, None, None, hint)
         return (device, int(slot_part), login, None)
 
-    @zkq_group.command("扫码提取", alias={"qrlink", "扫码"})
-    async def qr_extract_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """远程扫码链接账号并自动提取存档：/zkq 扫码提取 <设备> <槽位> [QQ|微信]（仅私聊）
-
-        登录方式可选：不带时流程走到登录方式选择界面会停下来，等 /zkq 登录方式 选择。
-        """
+    @filter.command("zkq扫码提取", alias={"zkq 扫码提取", "zkq qrlink", "zkq 扫码"})
+    async def qr_extract_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """远程扫码链接账号并提取存档。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -950,9 +947,9 @@ class ZkqStatus(Star):
             f"✅ 已通知设备「{device}」开始扫码提取（槽位 {slot}，登录方式 {login_txt}）。二维码稍后发来。"
         )
 
-    @zkq_group.command("登录方式", alias={"choose", "选登录"})
-    async def qr_choose_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """扫码提取进行到登录方式选择界面时，选择 QQ 或 微信：/zkq 登录方式 <设备> <QQ|微信>（仅私聊）"""
+    @filter.command("zkq登录方式", alias={"zkq 登录方式", "zkq choose", "zkq 选登录"})
+    async def qr_choose_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """提取流程中指定登录方式。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -982,9 +979,9 @@ class ZkqStatus(Star):
         login_txt = "QQ" if login == "qq" else "微信"
         yield event.plain_result(f"🔐 已选择 {login_txt}，设备「{device}」正在继续")
 
-    @zkq_group.command("确认提取", alias={"confirm"})
-    async def qr_confirm_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """村庄截图后人工确认，触发提取：/zkq 确认提取 <设备>（仅私聊）"""
+    @filter.command("zkq确认提取", alias={"zkq 确认提取", "zkq confirm"})
+    async def qr_confirm_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """村庄截图后确认并提取存档。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -1004,9 +1001,9 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(f"✅ 已确认，设备「{device}」正在提取存档")
 
-    @zkq_group.command("取消提取", alias={"cancel"})
-    async def qr_cancel_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """中止扫码提取流程（不提取）：/zkq 取消提取 <设备>（仅私聊）"""
+    @filter.command("zkq取消提取", alias={"zkq 取消提取", "zkq cancel", "zkq abort"})
+    async def qr_cancel_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """中止当前这一轮提取。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -1026,9 +1023,9 @@ class ZkqStatus(Star):
             return
         yield event.plain_result(f"🚫 已通知设备「{device}」取消提取")
 
-    @zkq_group.command("继续提取", alias={"qrnext", "继续"})
-    async def qr_continue_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """提取会话里继续提下一个账号：/zkq 继续提取 <设备> <槽位> [QQ|微信]（仅私聊，ADR-0004）"""
+    @filter.command("zkq继续提取", alias={"zkq 继续提取", "zkq qrnext", "zkq 继续"})
+    async def qr_continue_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """会话中继续提取下一个账号。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -1058,9 +1055,9 @@ class ZkqStatus(Star):
             f"✅ 已安排设备「{device}」继续提取（槽位 {slot}，登录方式 {login_txt}）"
         )
 
-    @zkq_group.command("结束提取", alias={"qrfinish", "结束"})
-    async def qr_finish_cmd(self, event: AstrMessageEvent, rest: GreedyStr):
-        """结束提取会话，设备自动重启恢复挂机：/zkq 结束提取 <设备>（仅私聊，ADR-0004）"""
+    @filter.command("zkq结束提取", alias={"zkq 结束提取", "zkq qrfinish", "zkq 结束"})
+    async def qr_finish_cmd(self, event: AstrMessageEvent, rest: GreedyStr = ""):
+        """结束提取会话并恢复挂机。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -1193,38 +1190,9 @@ class ZkqStatus(Star):
         except Exception as e:
             logger.error(f"[zkq] qr send image failed: {e!r}")
 
-    @zkq_group.command("帮助", alias={"help"})
-    async def help_cmd(self, event: AstrMessageEvent):
-        yield event.plain_result(self._help_text())
-
-    def _help_text(self) -> str:
-        return (
-            "## 🤖 紫孔雀脚本助手\n\n"
-            "- `/zkq 设备列表` — 已上报设备（在线状态）\n"
-            "- `/zkq 状态 <设备>` — 查看状态（缺省=单设备）\n"
-            "- `/zkq 启动 <设备>` — 远程启动脚本挂机（仅私聊）\n"
-            "- `/zkq 停止 <设备>` — 远程停止/暂停脚本挂机（仅私聊）\n"
-            "- `/zkq 全部` — 全部设备汇总\n"
-            "- `/zkq 服务器` — 服务器状态（CPU/内存/磁盘）\n"
-            "- `/zkq 截图 <设备>` — 设备实时截图（压缩后发图）\n"
-            "- `/zkq 扫码提取 <设备> <槽位> [QQ|微信]` — 开启提取会话，远程扫码链接账号并提取存档（仅私聊）\n"
-            "- `/zkq 登录方式 <设备> <QQ|微信>` — 提取流程停在登录方式选择界面时选择（未带参数会等这个，仅私聊）\n"
-            "- `/zkq 确认提取 <设备>` — 村庄截图后确认并提取（仅私聊）\n"
-            "- `/zkq 取消提取 <设备>` — 中止当前这一轮提取（仅私聊）\n"
-            "- `/zkq 继续提取 <设备> <槽位> [QQ|微信]` — 会话里继续提下一个账号（仅私聊）\n"
-            "- `/zkq 结束提取 <设备>` — 结束会话，设备自动重启恢复挂机（仅私聊）\n"
-            "- `/zkq 日志 <设备>` — 最近日志（需设备在线）\n"
-            "- `/zkq 日志文件 <设备>` — 完整日志打包 zip 发文件\n"
-            "- `/zkq 错误 <设备>` — error.log 尾部\n"
-            "- `/zkq ping <设备>` — 测试连接\n"
-            "- `/zkq 重置token` — 重置设备通讯密钥（仅私聊）\n"
-            "- `/zkq 帮助` — 本帮助\n\n"
-            "> 也可以直接问 AI：\"设备在干什么\"、\"帮我启动设备\"、\"服务器状态怎么样\"、\"截个图看看\""
-        )
-
-    @zkq_group.command("重置token", alias={"token", "重置密钥"})
+    @filter.command("zkq重置token", alias={"zkq 重置token", "zkq token", "zkq重置密钥", "zkq 重置密钥"})
     async def token_cmd(self, event: AstrMessageEvent):
-        """Regenerates the device comm token (private chat only)."""
+        """重置设备通讯密钥。"""
         if not event.is_private_chat():
             yield event.plain_result("仅私聊可用。")
             return
@@ -1239,145 +1207,12 @@ class ZkqStatus(Star):
             logger.error(f"[zkq] 保存新 token 失败: {e}")
             yield event.plain_result(f"🔑 重置失败：{e}")
             return
-        # Kick live connections so the new token takes effect immediately
-        # (devices reconnect on their own and re-authenticate).
         await self._kick_all_conns()
         logger.info("[zkq] token regenerated via command")
         yield event.plain_result(
             f"🔑 已重置设备通讯密钥：\n\n{tok}\n\n"
             "请在 App 的插件连接设置里填入该密钥。"
         )
-
-    # ── LLM tools (AI chat can query device status on demand) ────────
-    @filter.llm_tool(name="zkq_server_status")
-    async def llm_zkq_server_status(self, event: AstrMessageEvent):
-        """查询服务器硬件运行状态。"""
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        fields = await self._server_fields()
-        lines = [f"服务器状态:"]
-        for key, value in fields:
-            lines.append(f"{key}: {value}")
-        return "\n".join(lines)
-
-    @filter.llm_tool(name="zkq_status")
-    async def llm_zkq_status(self, event: AstrMessageEvent, device: str = None):
-        """查询设备当前运行状态。"""
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        return self._format_status((device or "").strip())
-
-    @filter.llm_tool(name="zkq_logs")
-    async def llm_zkq_logs(
-        self,
-        event: AstrMessageEvent,
-        action: str = "get",
-        device: str = None,
-        days: int = 0,
-        lines: int = 0,
-        hours: int = 0,
-    ):
-        """获取或清空设备运行日志。"""
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        act = (action or "").strip().lower()
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-
-        if act in ("clear", "delete", "清空", "删除"):
-            if not event.is_private_chat():
-                return "仅私聊可用。"
-            d = max(0, min(int(days or 0), 30))
-            data, err = await self._request_query(device, "clearlogs", days=d, max_chars=0)
-            if err:
-                return err
-            if not data or not data.get("ok"):
-                return (data or {}).get("error") or f"设备「{device}」删除失败"
-            return str(data.get("data") or "已删除")
-
-        # 默认打包获取日志文件
-        n = max(0, min(int(lines or 0), 200_000))
-        h = max(0, min(int(hours or 0), 24 * 30))
-        d = max(0, min(int(days or 0), 365))
-        data, err = await self._request_query(
-            device, "logfile", lines=n, days=d, hours=h, max_chars=0
-        )
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」打包失败"
-        filename = str(data.get("data") or "")
-        if not filename:
-            return f"设备「{device}」打包失败"
-        path = _SCREENSHOT_DIR / Path(filename).name
-        if not path.exists():
-            return f"设备「{device}」打包失败"
-        scope = f"最近{d}天" if d > 0 else (f"最近{h}小时" if h > 0 else (f"最近{n}行" if n > 0 else "全部保留"))
-        await event.send(
-            self._file_result(event, str(path), f"{device}_日志_{scope}_{time.strftime('%m%d_%H%M%S')}.zip")
-        )
-        return f"已发送日志压缩包（{scope}）"
-
-    @filter.llm_tool(name="zkq_screenshot")
-    async def llm_zkq_screenshot(self, event: AstrMessageEvent, device: str = None):
-        """获取设备实时屏幕截图。"""
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        path = await self._take_screenshot(device)
-        if not path:
-            return f"截图失败：设备「{device}」离线或未响应"
-        await event.send(
-            self._file_result(event, path, f"{device}_截图_{time.strftime('%m%d_%H%M%S')}.zip")
-        )
-        return f"已发送截图"
-
-    @filter.llm_tool(name="zkq_control")
-    async def llm_zkq_control(self, event: AstrMessageEvent, action: str, device: str = None):
-        """远程启动或停止设备挂机。"""
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        act = (action or "").strip().lower()
-        if act not in ("start", "stop", "run", "pause", "启动", "停止", "暂停"):
-            return "操作参数错误，必须为 start（启动）或 stop（停止/暂停）。"
-        query_type = "start" if act in ("start", "run", "启动") else "stop"
-        act_cn = "启动" if query_type == "start" else "暂停"
-
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        data, err = await self._request_query(device, query_type)
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」{act_cn}失败"
-        return f"设备「{device}」：" + str((data or {}).get("data") or f"已{act_cn}运行")
     # ── Query helpers ───────────────────────────────────────────────
     def _resolve_device(self, device: str, action: str) -> tuple[str | None, str | None]:
         """Returns (device_id, None) or (None, reply_hint).
@@ -1537,43 +1372,7 @@ class ZkqStatus(Star):
         return secrets.compare_digest(provided or "", token)
 
     def _refresh_tool_descriptions(self) -> None:
-        """设备列表变化时刷新 LLM 工具描述，让 AI 始终知道当前有哪些设备。"""
-        try:
-            devices = sorted(self.snapshots)
-            if not devices:
-                return
-            mgr = self.context.get_llm_tool_manager()
-            dev_txt = "、".join(devices)
-            plan = [
-                (
-                    "zkq_status",
-                    f"查询紫孔雀脚本设备的运行状态（当前账号、运行模式、最近事件）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_control",
-                    f"远程启动或停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。action 可选 'start' 或 'stop'。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_screenshot",
-                    f"获取指定紫孔雀脚本设备的当前屏幕实时截图并发送。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_logs",
-                    f"获取或清空紫孔雀脚本设备的运行日志（action: 'get' | 'clear'）。当前设备：{dev_txt}。",
-                ),
-            ]
-            for name, desc in plan:
-                ft = mgr.get_func(name)
-                if ft is None:
-                    continue
-                ft.description = desc
-                props = ft.parameters.get("properties") or {}
-                if "device" in props:
-                    props["device"]["description"] = f"设备名，当前可选：{dev_txt}。"
-            self._tool_desc_sig = tuple(devices)
-            logger.info(f"[zkq] tool descriptions refreshed: {dev_txt}")
-        except Exception as e:
-            logger.warning(f"[zkq] refresh tool descriptions failed: {e}")
+        pass
 
     def _check_whitelist(self, event: AstrMessageEvent) -> bool:
         """Private chats are always allowed (only the owner chats with the bot);
