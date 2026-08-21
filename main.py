@@ -1251,11 +1251,7 @@ class ZkqStatus(Star):
     # ── LLM tools (AI chat can query device status on demand) ────────
     @filter.llm_tool(name="zkq_server_status")
     async def llm_zkq_server_status(self, event: AstrMessageEvent):
-        """查询 AstrBot 运行服务器的硬件状态（CPU、内存、磁盘利用率）。
-
-        Args:
-            (无参数)
-        """
+        """查询服务器硬件运行状态。"""
         if not self._check_whitelist(event):
             return "无权限查询。"
         fields = await self._server_fields()
@@ -1266,11 +1262,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_status")
     async def llm_zkq_status(self, event: AstrMessageEvent, device: str = None):
-        """查询紫孔雀脚本设备的运行状态（当前账号、运行模式、下次升级、最近事件）。
-
-        Args:
-            device(string, optional): 设备名，不填默认唯一设备。
-        """
+        """查询设备当前运行状态。"""
         if not self._check_whitelist(event):
             return "无权限查询。"
         return self._format_status((device or "").strip())
@@ -1285,15 +1277,7 @@ class ZkqStatus(Star):
         lines: int = 0,
         hours: int = 0,
     ):
-        """获取日志压缩包或清空紫孔雀脚本设备的历史日志（清空仅私聊可用）。
-
-        Args:
-            action(string, optional): "get"（打包发送日志文件）或 "clear"（删除清空历史日志），默认 "get"。
-            device(string, optional): 设备名，不填默认唯一设备。
-            days(number, optional): 最近多少天（不填默认全部）。
-            lines(number, optional): 最近多少行（仅 get 时有效）。
-            hours(number, optional): 最近多少小时（仅 get 时有效）。
-        """
+        """获取或清空设备运行日志。"""
         if not self._check_whitelist(event):
             return "无权限操作。"
         act = (action or "").strip().lower()
@@ -1344,11 +1328,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_screenshot")
     async def llm_zkq_screenshot(self, event: AstrMessageEvent, device: str = None):
-        """获取指定紫孔雀脚本设备的当前屏幕实时截图并发送。
-
-        Args:
-            device(string, optional): 设备名，不填默认唯一设备。
-        """
+        """获取设备实时屏幕截图。"""
         if not self._check_whitelist(event):
             return "无权限查询。"
         device = (device or "").strip()
@@ -1371,12 +1351,7 @@ class ZkqStatus(Star):
 
     @filter.llm_tool(name="zkq_control")
     async def llm_zkq_control(self, event: AstrMessageEvent, action: str, device: str = None):
-        """远程启动或停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。
-
-        Args:
-            action(string): 必须是 "start"（启动）或 "stop"（停止/暂停）。
-            device(string, optional): 设备名，不填默认唯一设备。
-        """
+        """远程启动或停止设备挂机。"""
         if not event.is_private_chat():
             return "仅私聊可用。"
         if not self._check_whitelist(event):
