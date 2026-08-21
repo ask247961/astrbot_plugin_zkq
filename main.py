@@ -72,46 +72,13 @@ async def _save_uploaded(part, limit_bytes: int, filename: str) -> tuple[str, in
         tmp.unlink(missing_ok=True)
 
 
-# Built-in high-confidence keywords (doc §14.4). The regex anchors the match to
-# the whole message: only a message that is exactly a keyword triggers a query,
-# so a casual chat message that merely contains one of these words ("我今天状态
-# 不好") falls through to the LLM instead of hijacking the conversation.
-_DEFAULT_KEYWORDS = [
-    "状态",
-    "现在跑哪个号",
-    "当前账号",
-    "升级还有多久",
-    "下次升级",
-    "日志",
-    "看看日志",
-    "服务器状态",
-    "截图",
-]
-_KEYWORD_PATTERN = "^(?:" + "|".join(re.escape(k) for k in _DEFAULT_KEYWORDS) + ")$"
-
-
-class _BareGroupHelpFilter(CustomFilter):
-    """让裸 /zkq 走专用 handler 展示命令列表。
-
-    核心的 CommandGroupFilter 对裸指令组名会硬编码抛 "参数不足" 错误（在 handler
-    执行前就 stop 事件），且没有公开写法能覆盖。这个过滤器在 equals 判断之前短路
-    裸组名，让消息落到 @filter.regex 的专用 handler 上。
-    """
-
-    def __init__(self, group_names: set[str], raise_error: bool = True):
-        super().__init__(raise_error)
-        self._group_names = group_names
-
-    def filter(self, event: AstrMessageEvent, cfg: AstrBotConfig) -> bool:
-        return event.message_str.strip() not in self._group_names
-
-
 class ZkqStatus(Star):
     """紫孔雀挂机脚本助手：查询类命令只读；扫码提取会话会操控脚本清数据、链接账号、提取存档。
 
     支持的用法：
     - /zkq 设备列表、/zkq 状态 <设备>、/zkq 全部：查看设备运行状态
     - /zkq 服务器：查看服务器状态（CPU/内存/磁盘）
+    - /zkq 启动 <设备>、/zkq 停止 <设备>：远程启动/停止挂机
     - /zkq 日志 <设备>：查看最近日志（文本）
     - /zkq 日志文件 <设备>：完整日志打包成文件发送
     - /zkq 截图 <设备>：设备实时截图
@@ -123,11 +90,7 @@ class ZkqStatus(Star):
     - /zkq 结束提取 <设备>：结束提取会话，设备自动重启恢复挂机（仅私聊）
     - /zkq ping <设备>：测试设备连接
     - /zkq 清空日志 <设备>：删除日志（仅私聊可用）
-    - 直接发关键词也能查：状态、现在跑哪个号、当前账号、升级还有多久、下次升级、日志、服务器状态、截图
-    - AI 对话：问"设备在干什么""服务器状态怎么样""截个图看看""把今天的日志发我"，AI 会自动查询
-
-    设备只会主动连接服务器（无需端口映射/隧道）。查询类命令不修改脚本状态；
-    扫码提取（提取会话）与清空日志为破坏性操作，仅私聊可用。
+    - AI 对话：问"设备在干什么""服务器状态怎么样""截个图看看""把今天的日志发我"，AI 会自动调用工具
     """
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -145,10 +108,6 @@ class ZkqStatus(Star):
         self._cleanup_task: asyncio.Task | None = None
         self._runner: web.AppRunner | None = None
         self._persist_lock = asyncio.Lock()
-        # 核心对裸指令组名会抛 "参数不足" 并停止事件；挂一个过滤器短路它，
-        # 让裸 /zkq 改由 bare_group_help 这个 regex handler 展示命令列表。
-        _zkq_names = set(self.zkq_group.parent_group.get_complete_command_names())
-        self.zkq_group.parent_group.add_custom_filter(_BareGroupHelpFilter(_zkq_names))
         self._pause_start_times: dict[str, float] = {}
         self._pause_warned: dict[str, bool] = {}
         self._last_admin_session: str | None = None
@@ -1234,13 +1193,6 @@ class ZkqStatus(Star):
         except Exception as e:
             logger.error(f"[zkq] qr send image failed: {e!r}")
 
-    @filter.regex(r"^zkq\s*$")
-    async def bare_group_help(self, event: AstrMessageEvent):
-        """输入 /zkq 时快速展示指令菜单"""
-        if not event.is_at_or_wake_command:
-            return
-        yield event.plain_result(self._help_text())
-
     @zkq_group.command("帮助", alias={"help"})
     async def help_cmd(self, event: AstrMessageEvent):
         yield event.plain_result(self._help_text())
@@ -1323,25 +1275,28 @@ class ZkqStatus(Star):
             return "无权限查询。"
         return self._format_status((device or "").strip())
 
-    @filter.llm_tool(name="zkq_logs_file")
-    async def llm_zkq_logs_file(
+    @filter.llm_tool(name="zkq_logs")
+    async def llm_zkq_logs(
         self,
         event: AstrMessageEvent,
+        action: str = "get",
         device: str = None,
+        days: int = 0,
         lines: int = 0,
         hours: int = 0,
-        days: int = 0,
     ):
-        """打包并发送紫孔雀脚本设备的运行日志压缩包。
+        """获取日志压缩包或清空紫孔雀脚本设备的历史日志（清空仅私聊可用）。
 
         Args:
+            action(string, optional): "get"（打包发送日志文件）或 "clear"（删除清空历史日志），默认 "get"。
             device(string, optional): 设备名，不填默认唯一设备。
-            lines(number, optional): 最近多少行。
-            hours(number, optional): 最近多少小时。
-            days(number, optional): 最近多少天（不填默认全部保留日志）。
+            days(number, optional): 最近多少天（不填默认全部）。
+            lines(number, optional): 最近多少行（仅 get 时有效）。
+            hours(number, optional): 最近多少小时（仅 get 时有效）。
         """
         if not self._check_whitelist(event):
-            return "无权限查询。"
+            return "无权限操作。"
+        act = (action or "").strip().lower()
         device = (device or "").strip()
         if device:
             if device not in self.snapshots and device not in self.conns:
@@ -1352,6 +1307,19 @@ class ZkqStatus(Star):
             return "暂无设备上报（请检查 App 里的插件连接地址）"
         else:
             return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
+
+        if act in ("clear", "delete", "清空", "删除"):
+            if not event.is_private_chat():
+                return "仅私聊可用。"
+            d = max(0, min(int(days or 0), 30))
+            data, err = await self._request_query(device, "clearlogs", days=d, max_chars=0)
+            if err:
+                return err
+            if not data or not data.get("ok"):
+                return (data or {}).get("error") or f"设备「{device}」删除失败"
+            return str(data.get("data") or "已删除")
+
+        # 默认打包获取日志文件
         n = max(0, min(int(lines or 0), 200_000))
         h = max(0, min(int(hours or 0), 24 * 30))
         d = max(0, min(int(days or 0), 365))
@@ -1365,8 +1333,6 @@ class ZkqStatus(Star):
         filename = str(data.get("data") or "")
         if not filename:
             return f"设备「{device}」打包失败"
-        # The app echoes the plugin-side filename, but a forged frame must not
-        # be able to point the path outside _SCREENSHOT_DIR.
         path = _SCREENSHOT_DIR / Path(filename).name
         if not path.exists():
             return f"设备「{device}」打包失败"
@@ -1375,36 +1341,6 @@ class ZkqStatus(Star):
             self._file_result(event, str(path), f"{device}_日志_{scope}_{time.strftime('%m%d_%H%M%S')}.zip")
         )
         return f"已发送日志压缩包（{scope}）"
-
-    @filter.llm_tool(name="zkq_clear_logs")
-    async def llm_zkq_clear_logs(self, event: AstrMessageEvent, device: str = None, days: int = 0):
-        """删除指定紫孔雀脚本设备的历史日志文件（仅私聊可用）。
-
-        Args:
-            device(string, optional): 设备名，不填默认唯一设备。
-            days(number, optional): 删除最近多少天的日志，不填=全部。
-        """
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限查询。"
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        d = max(0, min(int(days or 0), 30))
-        data, err = await self._request_query(device, "clearlogs", days=d, max_chars=0)
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」删除失败"
-        return str(data.get("data") or "已删除")
 
     @filter.llm_tool(name="zkq_screenshot")
     async def llm_zkq_screenshot(self, event: AstrMessageEvent, device: str = None):
@@ -1433,17 +1369,24 @@ class ZkqStatus(Star):
         )
         return f"已发送截图"
 
-    @filter.llm_tool(name="zkq_start_device")
-    async def llm_zkq_start_device(self, event: AstrMessageEvent, device: str = None):
-        """远程启动指定的紫孔雀脚本挂机（仅私聊可用）。
+    @filter.llm_tool(name="zkq_control")
+    async def llm_zkq_control(self, event: AstrMessageEvent, action: str, device: str = None):
+        """远程启动或停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。
 
         Args:
+            action(string): 必须是 "start"（启动）或 "stop"（停止/暂停）。
             device(string, optional): 设备名，不填默认唯一设备。
         """
         if not event.is_private_chat():
             return "仅私聊可用。"
         if not self._check_whitelist(event):
             return "无权限操作。"
+        act = (action or "").strip().lower()
+        if act not in ("start", "stop", "run", "pause", "启动", "停止", "暂停"):
+            return "操作参数错误，必须为 start（启动）或 stop（停止/暂停）。"
+        query_type = "start" if act in ("start", "run", "启动") else "stop"
+        act_cn = "启动" if query_type == "start" else "暂停"
+
         device = (device or "").strip()
         if device:
             if device not in self.snapshots and device not in self.conns:
@@ -1454,79 +1397,12 @@ class ZkqStatus(Star):
             return "暂无设备上报（请检查 App 里的插件连接地址）"
         else:
             return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        data, err = await self._request_query(device, "start")
+        data, err = await self._request_query(device, query_type)
         if err:
             return err
         if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」启动失败"
-        return f"设备「{device}」：" + str((data or {}).get("data") or "已启动运行")
-
-    @filter.llm_tool(name="zkq_stop_device")
-    async def llm_zkq_stop_device(self, event: AstrMessageEvent, device: str = None):
-        """远程暂停/停止指定的紫孔雀脚本挂机（仅私聊可用）。
-
-        Args:
-            device(string, optional): 设备名，不填默认唯一设备。
-        """
-        if not event.is_private_chat():
-            return "仅私聊可用。"
-        if not self._check_whitelist(event):
-            return "无权限操作。"
-        device = (device or "").strip()
-        if device:
-            if device not in self.snapshots and device not in self.conns:
-                return f"未找到设备「{device}」，可用 /zkq 设备列表 查看"
-        elif len(self.snapshots) == 1:
-            device = next(iter(self.snapshots))
-        elif not self.snapshots:
-            return "暂无设备上报（请检查 App 里的插件连接地址）"
-        else:
-            return "多台设备，请指定设备名：" + "、".join(sorted(self.snapshots))
-        data, err = await self._request_query(device, "stop")
-        if err:
-            return err
-        if not data or not data.get("ok"):
-            return (data or {}).get("error") or f"设备「{device}」停止失败"
-        return f"设备「{device}」：" + str((data or {}).get("data") or "已暂停运行")
-
-    @filter.regex(_KEYWORD_PATTERN)
-    async def keyword_cmd(self, event: AstrMessageEvent):
-        """免前缀快捷响应：直接发送「状态」、「截图」、「服务器状态」等关键词快捷触发。"""
-        if not self._check_whitelist(event):
-            yield event.plain_result("无权限查询。")
-            return
-        msg = event.get_message_str().strip()
-        if msg in ("日志", "看看日志"):
-            if len(self.snapshots) == 1:
-                device = next(iter(self.snapshots))
-                yield event.plain_result(await self._query_tail(device, "logs"))
-            elif not self.snapshots:
-                yield event.plain_result("📄 暂无设备上报（请检查 App 里的插件连接地址）")
-            else:
-                yield event.plain_result("多设备时请用 /zkq 日志 <设备> 指定")
-            return
-        if msg == "服务器状态":
-            fields = await self._server_fields()
-            yield event.plain_result(format_server_text(fields))
-            return
-        if msg == "截图":
-            if len(self.snapshots) == 1:
-                device = next(iter(self.snapshots))
-            elif not self.snapshots:
-                yield event.plain_result("📷 暂无设备上报（请检查 App 里的插件连接地址）")
-                return
-            else:
-                yield event.plain_result("多设备时请用 /zkq 截图 <设备> 指定")
-                return
-            path = await self._take_screenshot(device)
-            if path:
-                yield self._file_result(event, path, f"{device}_截图_{time.strftime('%m%d_%H%M%S')}.zip")
-            else:
-                yield event.plain_result(f"📷 {device} 截图失败：设备离线或未响应")
-            return
-        # Status family (状态/现在跑哪个号/当前账号/升级还有多久/下次升级)
-        yield event.plain_result(self._format_status(""))
-
+            return (data or {}).get("error") or f"设备「{device}」{act_cn}失败"
+        return f"设备「{device}」：" + str((data or {}).get("data") or f"已{act_cn}运行")
     # ── Query helpers ───────────────────────────────────────────────
     def _resolve_device(self, device: str, action: str) -> tuple[str | None, str | None]:
         """Returns (device_id, None) or (None, reply_hint).
@@ -1696,27 +1572,19 @@ class ZkqStatus(Star):
             plan = [
                 (
                     "zkq_status",
-                    f"查询紫孔雀脚本设备的状态（当前账号、运行模式、最近事件、在线与否）。当前设备：{dev_txt}。不填 device 时返回全部设备。",
+                    f"查询紫孔雀脚本设备的运行状态（当前账号、运行模式、最近事件）。当前设备：{dev_txt}。",
                 ),
                 (
-                    "zkq_logs_file",
-                    f"把紫孔雀脚本设备的日志打包成文件发送。可按范围截取（days 不能大于设备日志保留天数，否则只能拿到保留期内的日志），不传范围=全部日志。当前设备：{dev_txt}。",
+                    "zkq_control",
+                    f"远程启动或停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。action 可选 'start' 或 'stop'。当前设备：{dev_txt}。",
                 ),
                 (
                     "zkq_screenshot",
-                    f"截图紫孔雀脚本设备当前屏幕并打包发送。当前设备：{dev_txt}。",
+                    f"获取指定紫孔雀脚本设备的当前屏幕实时截图并发送。当前设备：{dev_txt}。",
                 ),
                 (
-                    "zkq_clear_logs",
-                    f"删除紫孔雀脚本设备的日志（仅私聊可用，破坏性操作）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_start_device",
-                    f"远程启动指定的紫孔雀脚本挂机（仅私聊可用）。当前设备：{dev_txt}。",
-                ),
-                (
-                    "zkq_stop_device",
-                    f"远程停止/暂停指定的紫孔雀脚本挂机（仅私聊可用）。当前设备：{dev_txt}。",
+                    "zkq_logs",
+                    f"获取或清空紫孔雀脚本设备的运行日志（action: 'get' | 'clear'）。当前设备：{dev_txt}。",
                 ),
             ]
             for name, desc in plan:
