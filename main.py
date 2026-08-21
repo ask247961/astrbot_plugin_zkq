@@ -1457,6 +1457,171 @@ class ZkqStatus(Star):
             return (data or {}).get("error") or f"设备「{device}」{act_cn}失败"
         return f"设备「{device}」：" + str((data or {}).get("data") or f"已{act_cn}运行")
 
+    @filter.llm_tool(name="zkq_devices")
+    async def llm_zkq_devices(self, event: AstrMessageEvent):
+        """查看已上报的紫孔雀设备列表及其在线状态。"""
+        if not self._check_whitelist(event):
+            return "无权限查询。"
+        return self._format_devices()
+
+    @filter.llm_tool(name="zkq_errors")
+    async def llm_zkq_errors(self, event: AstrMessageEvent, device: str = None):
+        """查看设备最近的错误日志（error.log）。
+
+        Args:
+            device(string): 设备名称，缺省为默认单设备。
+        """
+        if not self._check_whitelist(event):
+            return "无权限查询。"
+        dev, hint = self._resolve_device((device or "").strip(), "错误")
+        if dev is None:
+            return hint
+        return await self._query_tail(dev, "errors")
+
+    @filter.llm_tool(name="zkq_ping")
+    async def llm_zkq_ping(self, event: AstrMessageEvent, device: str = None):
+        """测试与指定紫孔雀设备的网络连通性。
+
+        Args:
+            device(string): 设备名称，缺省为默认单设备。
+        """
+        if not self._check_whitelist(event):
+            return "无权限查询。"
+        dev, hint = self._resolve_device((device or "").strip(), "ping")
+        if dev is None:
+            return hint
+        data, err = await self._request_query(dev, "ping")
+        if err:
+            return err
+        ok = bool(data and data.get("ok"))
+        result_txt = "正常" if ok else "失败"
+        payload = data.get("data") if ok else (data or {}).get("error") or "无响应"
+        return f"设备「{dev}」连接测试：{result_txt}（{payload}）"
+
+    @filter.llm_tool(name="zkq_token")
+    async def llm_zkq_token(self, event: AstrMessageEvent):
+        """重置并重新生成设备通讯密钥（仅私聊可用）。"""
+        if not event.is_private_chat():
+            return "仅私聊可用。"
+        if not self._check_whitelist(event):
+            return "无权限操作。"
+        tok = secrets.token_hex(16)
+        self.config["token"] = tok
+        try:
+            await self.config.save_config_async()
+        except Exception as e:
+            return f"重置失败：{e}"
+        await self._kick_all_conns()
+        return f"已重置设备通讯密钥：{tok}\n请在 App 的插件连接设置里填入该密钥。"
+
+    @filter.llm_tool(name="zkq_qr_extract")
+    async def llm_zkq_qr_extract(
+        self,
+        event: AstrMessageEvent,
+        slot: int,
+        device: str = None,
+        login: str = None,
+    ):
+        """开启远程扫码链接账号并提取存档流程（仅私聊可用）。
+
+        Args:
+            slot(number): 存档槽位编号（正整数，如 1、2、3）。
+            device(string): 设备名称，缺省为默认单设备。
+            login(string): 登录方式，可选 'qq'（QQ）或 'wechat'（微信），不填则稍后在对话中选择。
+        """
+        if not event.is_private_chat():
+            return "仅私聊可用。"
+        if not self._check_whitelist(event):
+            return "无权限操作。"
+        dev, hint = self._resolve_device((device or "").strip(), "扫码提取")
+        if dev is None:
+            return hint
+        if slot <= 0:
+            return f"槽位「{slot}」无效，请输入正整数"
+        parsed_login = self._parse_login(login) if login else None
+        existing = self._qr_tasks.get(dev)
+        if existing and not existing.done():
+            return f"设备「{dev}」已有提取会话进行中，可告知'继续提取'或'结束提取'。"
+        data, err = await self._request_query(dev, "qr_start", slot=slot, login=parsed_login)
+        if err:
+            return err
+        if not data or not data.get("ok"):
+            return (data or {}).get("error") or f"设备「{dev}」启动扫码提取失败"
+        self._qr_events[dev] = event
+        self._qr_tasks[dev] = asyncio.get_running_loop().create_task(
+            self._qr_poll_task(dev)
+        )
+        login_txt = self._login_txt(parsed_login)
+        return f"已通知设备「{dev}」开始扫码提取（槽位 {slot}，登录方式 {login_txt}）。二维码稍后会自动发送。"
+
+    @filter.llm_tool(name="zkq_qr_control")
+    async def llm_zkq_qr_control(
+        self,
+        event: AstrMessageEvent,
+        action: str,
+        device: str = None,
+        param: str = None,
+    ):
+        """控制扫码提取会话流程（选择登录方式、确认提取、取消提取、继续下一个、结束会话）（仅私聊可用）。
+
+        Args:
+            action(string): 动作类型，可选：'choose'（选登录方式）、'confirm'（确认提取）、'cancel'（取消本轮）、'continue'（继续提下一号）、'finish'（结束会话恢复挂机）。
+            device(string): 设备名称，缺省为默认单设备。
+            param(string): 附加参数（选登录方式时为 'qq' 或 'wechat'；继续提取时为槽位数字如 '2' 或 '2 qq'）。
+        """
+        if not event.is_private_chat():
+            return "仅私聊可用。"
+        if not self._check_whitelist(event):
+            return "无权限操作。"
+        dev, hint = self._resolve_device((device or "").strip(), "提取控制")
+        if dev is None:
+            return hint
+        act = (action or "").strip().lower()
+
+        if act in ("choose", "登录方式", "选登录"):
+            parsed_login = self._parse_login(param or "")
+            if not parsed_login:
+                return "请指定登录方式（QQ 或 微信）。"
+            data, err = await self._request_query(dev, "qr_choose", login=parsed_login)
+            if err:
+                return err
+            login_txt = "QQ" if parsed_login == "qq" else "微信"
+            return f"已为设备「{dev}」选择 {login_txt} 登录。"
+
+        if act in ("confirm", "确认", "确认提取"):
+            data, err = await self._request_query(dev, "qr_confirm")
+            if err:
+                return err
+            return f"已确认，设备「{dev}」正在提取存档。"
+
+        if act in ("cancel", "取消", "取消提取", "中止"):
+            data, err = await self._request_query(dev, "qr_cancel")
+            if err:
+                return err
+            return f"已通知设备「{dev}」取消提取。"
+
+        if act in ("continue", "继续", "继续提取", "next"):
+            slot_login = (param or "").strip().split()
+            if not slot_login:
+                return "继续提取需要指定槽位，如：继续提取 2 QQ"
+            target = f"{dev} {param}"
+            _, slot, login, err_hint = self._parse_qr_target(target, "继续提取", "")
+            if err_hint or slot is None:
+                return err_hint or "槽位参数错误"
+            data, err = await self._request_query(dev, "qr_continue", slot=slot, login=login)
+            if err:
+                return err
+            login_txt = self._login_txt(login)
+            return f"已安排设备「{dev}」继续提取（槽位 {slot}，登录方式 {login_txt}）。"
+
+        if act in ("finish", "结束", "结束提取", "完成"):
+            data, err = await self._request_query(dev, "qr_finish")
+            if err:
+                return err
+            return f"已结束设备「{dev}」的提取会话，设备即将重启恢复挂机。"
+
+        return f"未知提取动作「{act}」，可选：choose / confirm / cancel / continue / finish"
+
     # ── Query helpers ───────────────────────────────────────────────
     def _resolve_device(self, device: str, action: str) -> tuple[str | None, str | None]:
         """Returns (device_id, None) or (None, reply_hint).
@@ -1639,6 +1804,22 @@ class ZkqStatus(Star):
                 (
                     "zkq_logs",
                     f"获取或清空紫孔雀脚本设备的运行日志（action: 'get' | 'clear'）。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_errors",
+                    f"查看紫孔雀脚本设备的最近错误日志（error.log）。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_ping",
+                    f"测试与指定紫孔雀脚本设备的网络连通性。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_qr_extract",
+                    f"开启远程扫码链接账号并提取存档流程（仅私聊可用）。当前设备：{dev_txt}。",
+                ),
+                (
+                    "zkq_qr_control",
+                    f"控制扫码提取会话流程（选登录方式/确认/取消/继续下一号/结束会话）（仅私聊可用）。当前设备：{dev_txt}。",
                 ),
             ]
             for name, desc in plan:
