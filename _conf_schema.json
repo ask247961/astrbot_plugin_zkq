@@ -1,0 +1,48 @@
+{
+  "enabled": {
+    "description": "启用问答（总开关）",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭后设备无法连接"
+  },
+  "server_port": {
+    "description": "设备通讯端口（设备与服务器通讯用）",
+    "type": "int",
+    "default": 16841
+  },
+  "token": {
+    "description": "设备通讯密钥（留空首次启用自动生成；QQ 私聊发 /zkq 重置token 可重置，重置后需同步填进 App）",
+    "type": "string",
+    "default": ""
+  },
+  "allowed_qq": {
+    "description": "允许查询的 QQ 白名单（多个用逗号隔开，留空不限制）",
+    "type": "string",
+    "default": ""
+  },
+  "snapshot_interval": {
+    "description": "设备上报间隔（秒）",
+    "type": "int",
+    "default": 60
+  },
+  "log_retention_days": {
+    "description": "日志保留天数（统一控制所有设备，超过自动删除）；注意：AI 对话/命令查询日志的天数不能大于此值，否则只能拿到保留期内的日志",
+    "type": "int",
+    "default": 7
+  },
+  "log_lines": {
+    "description": "日志显示行数",
+    "type": "int",
+    "default": 200
+  },
+  "max_chars": {
+    "description": "单条回复字数上限",
+    "type": "int",
+    "default": 4000
+  },
+  "upload_limit_mb": {
+    "description": "单次上传文件大小上限（MB，截图/日志打包超过则拒绝），长周期日志请调大，始终有上限",
+    "type": "int",
+    "default": 256
+  }
+}
