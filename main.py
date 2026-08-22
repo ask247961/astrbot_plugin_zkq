@@ -1340,8 +1340,8 @@ class ZkqStatus(Star):
         Args:
             action(string): 执行的操作类型，可选：'status'（状态查询）、'devices'（设备列表）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图）、'logs'（获取日志）、'clearlogs'（清空日志）、'errors'（错误日志）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
             device(string): 目标设备名称，单设备时可省略。
-            slot(number): 扫码提取时的槽位编号（正整数）。
-            login(string): 扫码提取登录方式，可选 'qq'（QQ）或 'wechat'（微信）。
+            slot(number): 扫码提取时的目标槽位编号（正整数）。如果用户没有明确说明槽位编号，严禁擅自盲猜或默认1号，应向用户询问“请问要提取到几号槽位？”；只有用户指定了槽位时才传入。
+            login(string): 扫码提取登录方式，可选 'qq'（QQ）或 'wechat'（微信）。若用户未指定，留空(None)即可，设备会自动停在选择界面等待用户选。
             param(string): 附加参数或说明。
             lines(number): 获取日志最近行数。
             days(number): 获取或清理日志最近天数。
@@ -1473,7 +1473,7 @@ class ZkqStatus(Star):
             if not event.is_private_chat():
                 return "仅私聊可用。"
             if slot is None or slot <= 0:
-                return "扫码提取需要指定槽位编号（正整数），如 slot=1"
+                return "请问要提取到几号存档槽位（如 1、2、3...）？请告诉我槽位编号。"
             parsed_login = self._parse_login(login or param or "")
             existing = self._qr_tasks.get(dev)
             if existing and not existing.done():
@@ -1728,6 +1728,10 @@ class ZkqStatus(Star):
                 props = ft.parameters.get("properties") or {}
                 if "device" in props:
                     props["device"]["description"] = f"目标设备名称，当前可选设备：{dev_txt}。"
+                if "slot" in props:
+                    props["slot"]["description"] = "扫码提取时的目标槽位编号（正整数）。若用户未在对话中明确说明几号槽位，严禁盲猜默认1，应向用户询问‘请问要提取到几号槽位？’。"
+                if "login" in props:
+                    props["login"]["description"] = "扫码提取登录方式，可选 'qq'（QQ）或 'wechat'（微信）。若用户未明确说明，留空(None)即可，设备会自动进入选择界面等待用户选。"
             self._tool_desc_sig = tuple(devices)
             logger.info(f"[zkq] tool descriptions refreshed: {dev_txt}")
         except Exception as e:
