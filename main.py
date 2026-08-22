@@ -1335,11 +1335,11 @@ class ZkqStatus(Star):
         days: int = 0,
         hours: int = 0,
     ):
-        """【必须调用的真实执行工具】紫孔雀脚本全能管理驱动中枢。当用户想要：查询运行状态、查看设备列表、服务器监控、远程启动挂机、停止/暂停挂机、实时截图、拉取日志文件、清空日志、错误排查、网络ping测试、或者进行远程扫码提取账号存档（发起提取、选QQ/微信登录方式、确认提取、取消提取、继续下一号、结束提取）等任何操作时，必须直接调用本工具执行硬件操作与数据交互，严禁仅用口头文字假装已执行！
+        """【紫孔雀挂机脚本与硬件管理唯一执行工具】当用户输入任何涉及设备管理、挂机控制或状态查询的意图（包括但不限于：设备列表、运行状态、启动挂机、暂停/停止、实时截图、拉取日志、清空日志、错误排查、网络测试、服务器状态、扫码提取账号等）时，必须直接调用本工具获取真实数据或执行硬件指令，严禁在未调用工具的情况下自行口头编造或回复“好的/马上查”等空话！
 
         Args:
-            action(string): 执行的操作类型，可选：'status'（状态查询）、'devices'（设备列表）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图）、'logs'（获取日志）、'clearlogs'（清空日志）、'errors'（错误日志）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
-            device(string): 目标设备名称，单设备时可省略。
+            action(string): 必须填写的操作类型。可选值：'devices'（用户说“设备列表/有哪些设备/在线情况”时选此项）、'status'（用户说“状态/运行情况/挂机怎么样”时选此项）、'start'（启动/开始挂机）、'stop'（暂停/停止挂机）、'screenshot'（截图/看画面）、'logs'（查看日志）、'clearlogs'（清空日志）、'errors'（排查报错）、'ping'（网络测试）、'server'（服务器监控）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）、'reset_token'（重置密钥）。
+            device(string): 目标设备名称。单设备时可省略。
             slot(number): 扫码提取时的目标槽位编号（正整数）。如果用户没有明确说明槽位编号，严禁擅自盲猜或默认1号，应向用户询问“请问要提取到几号槽位？”；只有用户指定了槽位时才传入。
             login(string): 扫码提取登录方式，可选 'qq'（QQ）或 'wechat'（微信）。若用户未指定，留空(None)即可，设备会自动停在选择界面等待用户选。
             param(string): 附加参数或说明。
@@ -1722,12 +1722,15 @@ class ZkqStatus(Star):
             ft = mgr.get_func("zkq_assistant")
             if ft is not None:
                 ft.description = (
-                    f"【必须调用的真实执行工具】紫孔雀脚本全能管理驱动中枢。当用户想要：查询运行状态、查看设备列表、服务器监控、远程启动挂机、停止/暂停挂机、实时截图、拉取日志文件、清空日志、错误排查、网络ping测试、或者进行远程扫码提取账号存档（发起提取、选QQ/微信登录方式、确认提取、取消提取、继续下一号、结束提取）等任何操作时，必须直接调用本工具执行硬件操作与数据交互，严禁仅用口头文字假装已执行！"
-                    f"当前在线设备：{dev_txt}。"
+                    "【紫孔雀挂机脚本与硬件管理唯一执行工具】当用户输入任何涉及设备管理、挂机控制或状态查询的意图（如设备列表、运行状态、启动挂机、暂停/停止、实时截图、拉取日志、清空日志、错误排查、网络测试、服务器状态、扫码提取账号等）时，必须直接调用本工具获取真实数据或执行硬件指令，严禁在未调用工具的情况下自行口头编造或回复“好的/马上查”等空话！"
                 )
                 props = ft.parameters.get("properties") or {}
+                if "action" in props:
+                    props["action"]["description"] = (
+                        "必须填写的操作类型：'devices'（用户说“设备列表/在线设备/有哪些设备”时选此项）、'status'（状态查询/运行情况）、'start'（启动挂机）、'stop'（暂停挂机）、'screenshot'（实时截图/看画面）、'logs'（查看日志）、'clearlogs'（清空日志）、'errors'（错误排查）、'ping'（网络测试）、'server'（服务器状态）、'qr_extract'（扫码提取）、'qr_choose'（选登录方式）、'qr_confirm'（确认提取）、'qr_cancel'（取消提取）、'qr_continue'（继续提取）、'qr_finish'（结束提取）。"
+                    )
                 if "device" in props:
-                    props["device"]["description"] = f"目标设备名称，当前可选设备：{dev_txt}。"
+                    props["device"]["description"] = f"目标设备名称，当前已注册设备：{dev_txt}。单设备时可省略。"
                 if "slot" in props:
                     props["slot"]["description"] = "扫码提取时的目标槽位编号（正整数）。若用户未在对话中明确说明几号槽位，严禁盲猜默认1，应向用户询问‘请问要提取到几号槽位？’。"
                 if "login" in props:
