@@ -1183,6 +1183,10 @@ class ZkqStatus(Star):
         if not data or not data.get("ok"):
             yield event.plain_result((data or {}).get("error") or f"设备「{device}」结束会话失败")
             return
+        task = self._qr_tasks.pop(device, None)
+        if task and not task.done():
+            task.cancel()
+        self._qr_events.pop(device, None)
         yield event.plain_result(f"📦 已结束设备「{device}」的提取会话，设备即将自动重启恢复挂机")
 
     async def _qr_poll_task(self, device: str) -> None:
@@ -1539,6 +1543,10 @@ class ZkqStatus(Star):
             data, err = await self._request_query(dev, "qr_finish")
             if err:
                 return err
+            task = self._qr_tasks.pop(dev, None)
+            if task and not task.done():
+                task.cancel()
+            self._qr_events.pop(dev, None)
             return f"已结束设备「{dev}」的提取会话，设备即将重启恢复挂机。"
 
         return f"未知操作指令「{act}」，可选：status / devices / start / stop / screenshot / logs / clearlogs / errors / ping / server / qr_extract 等。"
